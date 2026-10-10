@@ -125,7 +125,9 @@ def correr_caso(caso: dict, base: str, tope_s: float, secretos: list[str]) -> di
         while time.perf_counter() - t0 < tope_s:
             time.sleep(3)
             try:
+                t_poll = time.perf_counter()
                 g = httpx.get(f"{base}/tasks/{task_id}", headers=team, timeout=15).json()
+                fila.setdefault("consultas_ms", []).append((time.perf_counter() - t_poll) * 1000)
             except httpx.HTTPError as e:  # un corte aislado no tumba la prueba
                 fallos += 1
                 fila["problemas"].append(f"consulta {fallos} falló: {type(e).__name__}")
@@ -223,6 +225,12 @@ def main() -> None:
               f"{f['segundos']:>5.0f} s   {costo:>9}   {pasos}")
     ok = sum(1 for f in filas if not f["problemas"])
     total = sum(f["costo"] or 0 for f in filas)
+    for f in filas:
+        c = f.get("consultas_ms")
+        if c:
+            c = sorted(c)
+            print(f"\n  [{f['id']}] GET /tasks/{{id}}: {len(c)} consultas · mediana {c[len(c) // 2]:.0f} ms"
+                  f" · más lenta {c[-1]:.0f} ms · POST /tasks {f['post_s'] * 1000:.0f} ms")
     if any(f.get("tiempos") and f["tiempos"].get("seg_ia") is not None for f in filas):
         print("\n  Dónde se va el tiempo (segundos, por caso)")
         print("  caso   total   pantalla   textos     IA    acciones   otros   s/paso")
