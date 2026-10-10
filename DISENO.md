@@ -99,36 +99,36 @@ Vengo del servicio en hotelería de lujo: un empleado nuevo vale por ser confiab
 
 ```mermaid
 flowchart TB
-  EV[Evaluador] -->|orden + escritorio| API
-  BP[Banco de pruebas - pytest] -.->|mide aciertos, costo y tiempo| API
-  subgraph SRV[Servidor Contabo - Docker + Caddy HTTPS]
-    API[Recibe la orden y responde al instante - FastAPI]
-    API --> ENT[Entender la orden - IA barata, solo texto - OpenRouter]
-    ENT --> P{Hay procedimiento aprendido para este programa?}
-    P -->|si| PR[Seguir procedimiento SIN IA - Archivo JSON]
-    P -->|no| HG[Habilidades generales SIN IA: navegar menus, llenar campos por su nombre - Python]
-    PR -->|un paso no cuadra| IA[IA de respaldo: mira la pantalla y resuelve el paso - OpenRouter]
+  EV["Evaluador"] -->|orden + escritorio| API
+  BP["Banco de pruebas<br/>🔧 pytest"] -.->|mide aciertos, costo y tiempo| API
+  subgraph SRV["Servidor Contabo · 🔧 Docker + Caddy"]
+    API["Recibir la orden<br/>🔧 FastAPI"]
+    API --> ENT["Entender la orden<br/>🔧 OpenRouter (IA barata, solo texto)"]
+    ENT --> P{"¿Hay procedimiento<br/>aprendido?"}
+    P -->|sí| PR["Seguir procedimiento (sin IA)<br/>🔧 Archivo JSON"]
+    P -->|no| HG["Habilidades generales (sin IA)<br/>🔧 Python"]
+    PR -->|un paso falla| IA["IA de respaldo<br/>🔧 OpenRouter"]
     HG -->|no alcanza| IA
     PR --> ACT
     HG --> ACT
-    IA --> ACT[Actuar: teclado primero, mouse de respaldo - Cliente VNC propio]
-    ACT --> VER[Leer pantalla SIN IA, esperar a que este quieta - Tesseract]
-    VER --> REG[Reglas: no duplicar, homonimos, tope 4:30 min o US$0.15 - Python]
+    IA --> ACT["Actuar: teclado primero<br/>🔧 Cliente VNC propio"]
+    ACT --> VER["Leer la pantalla (sin IA)<br/>🔧 Tesseract"]
+    VER --> REG["Supervisor: no duplicar,<br/>no adivinar, topes<br/>🔧 Python"]
     REG -->|faltan pasos| P
-    REG -->|termino| VF[Verificar SIN IA: comparar letra por letra - Tesseract]
-    VF --> RS[Resumen sin secretos: terminada o fallida - FastAPI]
+    REG -->|terminó| VF["Verificar (sin IA)<br/>🔧 Tesseract"]
+    VF --> RS["Responder: terminada o fallida<br/>🔧 FastAPI"]
     RS --> API
-    IA -.->|salio bien| APR[Guardar como procedimiento - Archivo JSON]
+    IA -.->|salió bien| APR["Guardar procedimiento<br/>🔧 Archivo JSON"]
     APR -.-> PR
-    RS --> BIT[Bitacora: capturas y decisiones - JSON + PNG]
+    RS --> BIT["Bitácora<br/>🔧 JSON + capturas"]
   end
-  ACT <-->|websocket VNC| ESC[Computador remoto con el programa]
+  ACT <-->|websocket VNC| ESC["Computador remoto"]
   VER <--> ESC
-  subgraph LEY[Leyenda]
-    L1[Recibir y responder]
-    L2[Sin IA]
-    L3[Con IA]
-    L4[Ojos y manos]
+  subgraph LEY["Leyenda"]
+    L1["Recibir y responder"]
+    L2["Sin IA"]
+    L3["Con IA"]
+    L4["Ojos y manos"]
   end
   classDef azul fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
   classDef verde fill:#DCFCE7,stroke:#16A34A,color:#14532D
