@@ -19,8 +19,8 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 4 | `7a1a611` | pasó 91 s, 11 pasos | sin veredicto (`/__check` cortó la conexión) | **falló** 134 s (error de formato) | pasó 109 s, 11 pasos | |
 | 5 | `b389fba` | pasó 85 s, 11 pasos, US$0.033 | pasó 70 s, 9 pasos, US$0.029 | **falló**: respondió 16, era 45 | **falló** (error de formato) | |
 | 6 | `8673f92` | pasó 109 s, 13 pasos, US$0.046 | pasó 76 s, 9 pasos, US$0.033 | **falló**: respondió 51, era 45 | pasó 88 s, 10 pasos, US$0.044 | |
-| 7 | `2bc0e1a` (nota) | _control: ver corrida 8_ | _control: ver corrida 8_ | pasó 100 s, 10 pasos, US$0.063 · pasó 100 s, 10 pasos, US$0.053 · **falló** 133 s: respondió 44, era 45 | _control: ver corrida 8_ | pasó 52 s, 6 pasos, US$0.024 |
-| 8 | `2bc0e1a` (control) | _pendiente_ | _pendiente_ | | _pendiente_ | |
+| 7 | `2bc0e1a` (nota) | | | pasó 100 s, 10 pasos, US$0.063 · pasó 100 s, 10 pasos, US$0.053 · **falló** 133 s: respondió 44, era 45 | | pasó 52 s, 6 pasos, US$0.024 |
+| 8 | `2bc0e1a` (control) | pasó 109 s, 13 pasos, US$0.048 | pasó 85 s, 9 pasos, US$0.034 | | pasó 82 s, 10 pasos, US$0.045 | |
 
 Publicado en `frontier.jutilabs.com` (servidor con versiones anteriores a las del repo):
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
@@ -149,6 +149,7 @@ E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego d
   - Las dos que pasaron lo hicieron por la razón correcta: notas "página 1: 16 exactas de 20 (descarté 4) · página 2: 18 exactas de 20 (descarté 2) · página 3: 11 exactas de 11" → total **45**, y el resumen dice que descartó 6 filas de "e Hijos". 10 pasos, 100 s.
   - La que falló respondió **44**: en la página 1 contó "15 exactas de **19** filas" cuando la página tiene 20 (se saltó una fila al contarla). Las páginas 2 y 3 salieron bien. Reportó `terminada`: sigue siendo un falso éxito, ahora por 1.
   - Antes de la nota: 16 (una página) y 51 (con "e Hijos"). Con la nota: 45, 45 y 44.
+- **Control de que nada se rompió (medido, corrida 8):** con el prompt nuevo, E1, E2 y E4 pasan (109 s, 85 s y 82 s).
 - **E5 (medido, no se había corrido desde los cambios):** pasó, `fallida` como se espera, 52 s, 6 pasos, US$0.024.
 - **Idea para cerrar el caso del 44 (NO hecha, a tu decisión):** las páginas completas de una lista tienen todas el mismo número de filas. Si las notas dicen "19 filas" en la página 1 y "20" en la 2, el supervisor puede pedir recontar antes de dar `terminada`. Estimo 20–25 min; costaría ~40 s más en esos casos.
 
@@ -157,5 +158,6 @@ E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego d
 ## Riesgos y pendientes conocidos
 - `ReadTimeout` contra el publicado: sin causa establecida (cambio 13).
 - La IA es lo más lento (5 s por llamada o más). Secuencias de varias acciones por decisión quedan **para después del imprevisto**.
+- E3 acierta 2 de 3 veces: la IA a veces se salta una fila al contar una página de 20 (cambio 18).
 - Lo publicado en el servidor está **detrás** del repo: falta `git pull && ./deploy.sh` cuando decidas publicar.
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
