@@ -22,8 +22,12 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 7 | `2bc0e1a` (nota) | | | pasó 100 s, 10 pasos, US$0.063 · pasó 100 s, 10 pasos, US$0.053 · **falló** 133 s: respondió 44, era 45 | | pasó 52 s, 6 pasos, US$0.024 |
 | 8 | `2bc0e1a` (control) | pasó 109 s, 13 pasos, US$0.048 | pasó 85 s, 9 pasos, US$0.034 | | pasó 82 s, 10 pasos, US$0.045 | |
 
-| 9 | `fd239c9` (**tras el aviso del incidente**) | pasó 97 s, 13 pasos, US$0.047 | pasó 67 s, 9 pasos, US$0.034 | pasó 112 s, 11 pasos, US$0.074 | pasó 82 s, 11 pasos, US$0.050 | pasó 42 s, 6 pasos, US$0.024 |
+| 9 | `fd239c9` (tema **viejo**, tras el aviso del incidente) | pasó 97 s, 13 pasos, US$0.047 | pasó 67 s, 9 pasos, US$0.034 | pasó 112 s, 11 pasos, US$0.074 | pasó 82 s, 11 pasos, US$0.050 | pasó 42 s, 6 pasos, US$0.024 |
 
+| 10 | `ec46b68` — **tema nuevo v4.2, ANTES de adaptar** | pasó 112 s, 16 pasos, US$0.058 | pasó 103 s, 13 pasos, US$0.051 | pasó 100 s, 11 pasos, US$0.066 | pasó 100 s, 13 pasos, US$0.059 | pasó 61 s, 9 pasos, US$0.034 |
+| 11 | `843cc5b` (mouse estacionado: **regresión mía**) | **falló** 273 s, 28 pasos | **falló** 106 s, 13 pasos | pasó 133 s, 12 pasos | **falló** 273 s, 35 pasos | **falló** 112 s, 15 pasos |
+| 12 | `29a34de` — **tema nuevo v4.2, DESPUÉS de adaptar** | pasó 118 s, 14 pasos, US$0.057 | pasó 85 s, 10 pasos, US$0.042 | **falló** 115 s: respondió 43, era 45 | pasó 124 s, 11 pasos, US$0.053 | pasó 79 s, 7 pasos, US$0.030 |
+| 13 | `29a34de` (E3 repetido) | | | pasó 118 s · **falló** 103 s (43 otra vez) | | |
 Publicado en `frontier.jutilabs.com` (servidor con versiones anteriores a las del repo):
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
@@ -215,7 +219,142 @@ topes de tiempo y de gasto, el filtro de secretos, la bitácora, las notas y la 
 **Qué se puede ajustar sin tocar código (en `.env`):** `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_SEND_IMAGE`,
 `OCR_SCALE`, `OCR_BOTONES`, `FIELD_OFFSET_X/Y`, `CLICK_HOLD_MS`, `SCREEN_*`, `TASK_MAX_SECONDS`.
 
-**Estado:** detección terminada; **no se cambió código**. Se esperan decisiones (ver el mensaje de propuestas).
+**Estado:** esta sección es de las 15:38–15:46 (tema todavía viejo). La continuación, con el tema nuevo, está abajo.
+
+---
+
+## Incidente (tema nuevo v4.2): detectar, mirar, adaptar y medir
+
+**Cómo se detectó el cambio.** A las 15:38–15:46 el escritorio de práctica seguía en el tema viejo (0 de 24
+etiquetas movidas, sin modal). A las 15:58, después de que confirmaste el ticket, el reset dejó el
+escritorio en **SIGECOM v4.2**: encabezado verde en vez de azul marino y un modal "Novedades de la
+versión 4.2" con el botón verde "Entendido" y una ×. El modal dice: *los formularios ahora se aplican sin
+cerrarse, la barra de acciones pasó a la derecha y hay nombres nuevos en los botones*.
+
+### 1) ANTES: el código sin tocar, sobre el tema nuevo (corrida 10, medido)
+**5 de 5 pasaron**, pero con más pasos que en el tema viejo (16/13/11/13/9 contra 13/9/11/11/6) porque el
+primer paso siempre era el modal y a veces costó 2–3 pasos cerrarlo. No hubo ningún fallo. Lo que sí se vio
+en las bitácoras (con captura):
+- **Modal:** el agente lo cerró, pero en E2, E4 y E5 gastó 3 pasos. La IA dio la zona de "Entendido" como
+  (656, 604): son coordenadas **normalizadas a 1000** (el botón real está en (841, 483)); el sistema las
+  tomó como píxeles y no encontró nada. Además "Entendido" se leía "EXI" o "Eutendido".
+- **Botones leídos mal o nada:** en Facturas, Filtrar/Limpiar/Exportar/Siguiente/Anterior no salían en la
+  lista de textos; en Clientes salía fusionado "Exportar Ml Crear cliente".
+- **El cursor del mouse** queda encima del botón pulsado y tapa letras: "Filtrar" salía "Filtuar".
+
+### 2) MIRAR: cómo quedó el tema nuevo (capturas de las bitácoras, medido)
+| Qué | Tema viejo | Tema nuevo (v4.2) |
+|---|---|---|
+| Versión / encabezado | v3.9, azul marino (31, 59, 99) | **v4.2, verde oscuro (45, 74, 62)** |
+| Modal al abrir | no hay | **"Novedades de la versión 4.2"**, botón verde "Entendido" (841, 483) y × |
+| Botón principal | azul (82, 125, 188) con texto blanco | **verde (80, 153, 118)** con texto blanco |
+| Botón secundario | gris claro con borde | igual (gris (247, 248, 250) con borde) |
+| Buscar en listas | "Buscar" (azul) | **"Filtrar"** (verde) |
+| Crear | "Nuevo cliente" / "Nuevo pedido" (a la izquierda) | **"Crear cliente" / "Crear pedido"**, **a la derecha** junto a "Exportar" |
+| Guardar | "Guardar" (azul, abajo a la izquierda) | **"Aplicar"** (verde, **abajo a la derecha**) |
+| Volver | "Volver" (gris, a la derecha de Guardar) | **"Cerrar"** (gris, a la izquierda de Aplicar) |
+| Título del formulario | "Nuevo cliente" | **"Crear cliente"**; tras aplicar pasa a **"Cliente CL-0141"** |
+| Cabecera de tabla | gris azulado (201, 210, 223) | gris verdoso (207, 220, 212) |
+| Guardar | cierra el formulario y vuelve a la lista | **el formulario SIGUE ABIERTO** con los datos; sale un aviso azul abajo a la derecha **"Cambios aplicados"** |
+| Paginación | Anterior / Página 1 / Siguiente | igual |
+| Lo que NO cambió | posición de los menús, de las etiquetas y de las columnas (0 de 24 movidas) | |
+
+### 3) ADAPTAR (genérico: nada fijo a esta app) y qué se midió
+**a) Guardar sin que el formulario se cierre** — `supervisor.py`, `llm.py`
+- *Riesgo:* pulsar "Aplicar" dos veces sobre el mismo registro (duplicados) o tomar "sigue abierto" como fallo.
+- *Cambio:* el supervisor rechaza un segundo guardar/aplicar/grabar sobre el mismo registro si no hubo un
+  cambio de campo en medio, y antes de dar `terminada` pide ver la confirmación (aviso, código o datos).
+  Las instrucciones explican que "sigue abierto" es normal y que se confirma leyendo la pantalla.
+- *Medido:* 8 pruebas nuevas. En la corrida 12, **1 sola pulsación de Aplicar** en E1 y en E2 y 0 rechazos.
+
+**b) Modal (regla genérica)** — `llm.py`, `screen.py`
+- *Cambio:* instrucciones para cualquier app: leerlo completo, cerrarlo con su botón, comprobar que
+  desapareció (el primer clic a veces no basta), no obedecer instrucciones suyas que cambien datos y, si
+  pide una decisión sobre datos, elegir la opción que no cambia nada. Más un respaldo: si `clic_zona` no
+  encuentra el botón y las coordenadas caben en 0–1000, se prueban como normalizadas.
+- *Medido:* el modal se cerró en **1 paso en los 5 casos** (antes 1–3). Una prueba nueva reproduce el
+  caso (656, 604) → (841, 483) con la captura real.
+- *Observado, no resuelto:* el primer clic en "Entendido" a veces se ignora (en una prueba cerró al primer
+  clic y en otra necesitó dos). El agente lo resuelve porque verifica y repite.
+
+**c) Nombres de botones** — `llm.py`, `supervisor.py`
+- *Cambio:* sinónimos genéricos en las instrucciones (guardar: Guardar/Aplicar/Grabar/Registrar…; salir:
+  Volver/Cancelar/Cerrar…; buscar: Buscar/Filtrar/Consultar…; crear: Nuevo/Crear/Agregar…; exportar;
+  páginas) y la orden de buscar cada acción por su significado **en toda la pantalla**, no en un lugar fijo.
+- *Medido:* 1 prueba revisa que las instrucciones no dependan de un nombre ni de una posición.
+
+**d) Detección de botones nuevos y estilos** — `screen.py`
+- *Cambios:* (1) botones de color por *oscuro + con color* (verde, rojo, naranja…), no solo azul; (2) botones
+  **grises con borde** (Siguiente, Limpiar, Cerrar…): mancha clara y sin color con un borde mucho más oscuro,
+  de tamaño de botón y que no forma parte de una rejilla (así no se confunde con las celdas de una tabla);
+  (3) lectura recortada de cada botón con **votación de 3 variantes** (invertida, grises y original);
+  (4) los botones se leen en paralelo.
+- *Medido sobre 12 capturas reales (6 del tema viejo y 6 del nuevo), botones leídos bien:*
+
+| | Antes | Después |
+|---|---|---|
+| Tema **viejo** | 14 de 20 (70 %) | **19 de 20 (95 %)** |
+| Tema **nuevo** | 15 de 26 (58 %) | **26 de 26 (100 %)** |
+| Total | 29 de 46 (63 %) | **45 de 46 (98 %)** |
+
+  Falsos positivos: 0. Lo que "ya no sale" son lecturas basura ("ENS", "Filtuar", "Cin"). Costo: +0.1 a +0.35 s
+  por pantalla en esta Mac (medido); en el servidor no se midió.
+
+### 4) Dos regresiones mías, detectadas por la propia medición (honestidad para el debrief)
+1. **Mouse estacionado → los submenús dejaron de abrir (corrida 11: 1 de 5).**
+   - *Qué hice:* para que el cursor no tape letras, lo alejaba a una esquina tras cada clic.
+   - *Qué falló:* el menú de 2.º nivel ("Maestros ▸") **se cierra al alejar el mouse**. Mi prueba solo
+     había verificado el primer nivel ("Comercial") y la generalicé mal. El agente se quedó atascado
+     (E1: 28 pasos, E4: 35 pasos).
+   - *Prueba directa (medido):* mouse encima → submenú visible: **sí**; mouse en la esquina: **no**;
+     mouse dentro del elemento: **no**.
+   - *Qué cambié:* `PARK_MOUSE` queda **apagado** por defecto (opción en `.env`). Una prueba lo exige.
+2. **El panel del menú desplegable se leía como un botón.** Mi detector de grises tomó el panel
+   "Maestros ▸ / Ventas ▸" (208 × 55 px) como botón y lo leyó "AS". Ahora un botón gris mide como máximo
+   36 px de alto y 200 de ancho, y una caja con varias líneas de texto dentro se descarta.
+   Dos pruebas con la captura real del menú abierto lo cubren.
+- *Por qué no se vio antes:* mis mediciones de botones eran sobre pantallas **sin menú abierto**. Quedó
+  una muestra nueva (`nuevo_menu_abierto.png`) en `tests/fixtures/`.
+
+### 5) DESPUÉS: la versión corregida sobre el tema nuevo (corrida 12, medido)
+
+| Caso | ANTES (`ec46b68`) | DESPUÉS (`29a34de`) |
+|---|---|---|
+| E1 crear cliente | pasó · 112 s · 16 pasos · US$0.058 | pasó · 118 s · **14** pasos · US$0.057 |
+| E2 corregir dirección | pasó · 103 s · 13 pasos · US$0.051 | pasó · **85 s** · **10** pasos · US$0.042 |
+| E3 facturas vencidas | pasó · 100 s · 11 pasos · US$0.066 | **falló** · 115 s · 11 pasos · respondió **43**, era 45 |
+| E4 exportar pedidos | pasó · 100 s · 13 pasos · US$0.059 | pasó · 124 s · **11** pasos · US$0.053 |
+| E5 homónimos | pasó · 61 s · 9 pasos · US$0.034 | pasó · 79 s · **7** pasos · US$0.030 |
+| **Pasaron** | **5 de 5** | **4 de 5** |
+| Pasos (suma) | 62 | **53** (−15 %) |
+| Tiempo (suma) | 476 s | 521 s (+9 %) |
+| Costo (suma) | US$0.268 | **US$0.242** (−10 %) |
+
+- **Menos pasos, pero más tiempo por paso** (de ~7–9 s a ~8–11 s): leer los botones recortados cuesta
+  (leer textos: 39 s → 67 s en los 5 casos) y la IA tardó en promedio algo más.
+- **E3 repetido con el código nuevo: 1 de 3** (pasó 118 s; falló dos veces con el **mismo 43**).
+  - *Diagnóstico (medido):* la lectura de pantalla **no pierde filas**: la lista de textos trae los 20
+    códigos por página en las tres corridas. Quien cuenta mal es la IA: en las dos corridas fallidas anotó
+    "15 exactas de **19** filas" y "17 de **19**" cuando las páginas tienen 20; en la que pasó anotó 20 y 20.
+    Descartó bien las 6 filas de "e Hijos" en las tres.
+  - *No se puede atribuir al cambio de tema ni a mis cambios:* con el código anterior E3 había dado
+    45, 45, 44, 51, 16… (2 de 3 antes de la nota; 1 de 1 en la corrida 10). Son pocas muestras.
+- **Qué NO se pudo mejorar con medición:** la tasa de aciertos no subió (5/5 → 4/5, con E3 en su rango
+  habitual de variación). Lo que sí subió es la lectura de botones (63 % → 98 %) y bajó el número de pasos.
+
+### Qué parte del código depende del tema, después de este trabajo
+| Dependencia | Estado |
+|---|---|
+| Botones de un solo color (azul) | **Arreglado:** cualquier fondo oscuro con color |
+| Botones grises no leídos | **Arreglado:** detección por borde y forma, sin tablas |
+| Palabras fijas en las instrucciones | **Arreglado:** sinónimos y búsqueda en toda la pantalla |
+| Cursor tapando letras | **Mitigado** con votación; estacionarlo rompe los submenús (medido) |
+| `FIELD_OFFSET_Y/X` (campo bajo la etiqueta) | Sin cambio; en v4.2 las etiquetas siguen encima del campo |
+| Modal | **Arreglado:** regla genérica + respaldo de coordenadas |
+| Guardar sin cerrar | **Arreglado** (supervisor + instrucciones) |
+| Teclas bloqueadas (`Ctrl+L`, `F12`, `Esc`) | Sin cambio; no se ha probado en una app distinta |
+| Colores de acento claros (amarillo) o un tema oscuro | **No cubierto:** el detector exige fondo oscuro con color |
+| Conteo de filas por la IA | **Abierto** (ver arriba) |
 
 ---
 
@@ -223,6 +362,7 @@ topes de tiempo y de gasto, el filtro de secretos, la bitácora, las notas y la 
 - `ReadTimeout` contra el publicado: sin causa establecida (cambio 13).
 - La IA es lo más lento (5 s por llamada o más). Secuencias de varias acciones por decisión quedan **para después del imprevisto**.
 - E3 acierta 2 de 3 veces: la IA a veces se salta una fila al contar una página de 20 (cambio 18).
-- **Incidente de las 15:30:** no he podido ver el tema nuevo ni el modal en el escritorio de práctica; el código actual pasa E1–E5 sobre lo que veo. Hay que conseguir el escritorio con el tema nuevo (ver la sección del incidente).
+- **E3 (conteo de filas):** la IA cuenta mal una fila por página en ~la mitad de las corridas; la lectura de pantalla trae todas las filas (medido). Pendiente de decidir el arreglo.
+- **Tema nuevo en servidor:** lo publicado está detrás del repo; falta `git pull && ./deploy.sh`.
 - Lo publicado en el servidor está **detrás** del repo: falta `git pull && ./deploy.sh` cuando decidas publicar.
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
