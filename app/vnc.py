@@ -11,6 +11,7 @@ import struct
 
 import numpy as np
 import websockets
+from websockets.exceptions import ConnectionClosed
 
 from app.config import Config
 
@@ -115,6 +116,18 @@ class ErrorVnc(RuntimeError):
     pass
 
 
+class ConexionRestablecida(ErrorVnc):
+    """La conexión se cortó mientras se ejecutaba una acción y se restableció.
+
+    La acción NO se repite sola: pudo ejecutarse, quedar a medias o no ejecutarse. Quien llama
+    debe volver a mirar la pantalla antes de decidir.
+    """
+
+
+# Todo lo que significa "la conexión con el escritorio se cortó o se colgó".
+CORTES = (ConnectionClosed, ConnectionError, OSError, asyncio.IncompleteReadError, TimeoutError)
+
+
 class Vnc:
     """Una sesión VNC. Úsala con `async with Vnc.conectar(url, password, cfg) as v:`."""
 
@@ -125,6 +138,9 @@ class Vnc:
         self.ancho = 0
         self.alto = 0
         self._fb = bytearray()
+        self._url = ""
+        self._password = ""
+        self.reconexiones = 0
 
     # ---- conexión
     @classmethod
@@ -139,6 +155,7 @@ class Vnc:
                     ping_interval=None, open_timeout=cfg.vnc_open_timeout_s,
                 )
                 v = cls(ws, cfg)
+                v._url, v._password = url, password
                 await asyncio.wait_for(v._saludo(password), timeout=cfg.vnc_open_timeout_s)
                 return v
             except Exception as e:  # red, tiempo agotado, protocolo
@@ -150,6 +167,39 @@ class Vnc:
     async def cerrar(self) -> None:
         await self._ws.close()
 
+    async def reconectar(self) -> None:
+        """Abre una conexión nueva con los mismos datos y reemplaza la rota."""
+        try:
+            await self._ws.close()
+        except Exception:  # la conexión vieja ya estaba rota
+            pass
+        nuevo = await Vnc.conectar(self._url, self._password, self._cfg)
+        self._ws, self._buf, self._fb = nuevo._ws, nuevo._buf, nuevo._fb
+        self.ancho, self.alto = nuevo.ancho, nuevo.alto
+
+    async def _protegido(self, operacion, repetir: bool):
+        """Ejecuta una operación; si la conexión se corta, reconecta (las veces permitidas).
+
+        - Lecturas (`repetir=True`): se vuelven a pedir con la conexión nueva.
+        - Acciones (`repetir=False`): NO se repiten; se avisa con ConexionRestablecida.
+        """
+        try:
+            return await operacion()
+        except CORTES as e:
+            if self.reconexiones >= self._cfg.vnc_reconnects:
+                raise ErrorVnc(
+                    f"la conexión con el escritorio se cortó y no se pudo recuperar ({type(e).__name__})"
+                ) from e
+            self.reconexiones += 1
+            try:
+                await self.reconectar()
+            except ErrorVnc as e2:
+                raise ErrorVnc("la conexión con el escritorio se cortó y no se pudo restablecer") from e2
+            if repetir:
+                return await operacion()
+            raise ConexionRestablecida(
+                "la conexión se cortó durante la acción y se restableció; la acción no se repitió") from e
+
     async def __aenter__(self) -> "Vnc":
         return self
 
@@ -159,7 +209,7 @@ class Vnc:
     # ---- bajo nivel
     async def _leer(self, n: int) -> bytes:
         while len(self._buf) < n:
-            msg = await self._ws.recv()
+            msg = await asyncio.wait_for(self._ws.recv(), timeout=self._cfg.vnc_read_timeout_s)
             if isinstance(msg, str):
                 msg = msg.encode("latin-1")
             self._buf += msg
@@ -233,7 +283,7 @@ class Vnc:
                 raise ErrorVnc(f"mensaje del servidor desconocido: {tipo}")
 
     # ---- ver
-    async def capturar(self) -> np.ndarray:
+    async def _capturar_directo(self) -> np.ndarray:
         """Captura completa. Devuelve un arreglo alto×ancho×3 (RGB, uint8)."""
         await self._enviar(struct.pack(">BBHHHH", 3, 0, 0, 0, self.ancho, self.alto))
         await self._leer_actualizacion()
@@ -248,7 +298,7 @@ class Vnc:
     async def _puntero(self, mascara: int, x: int, y: int) -> None:
         await self._enviar(struct.pack(">BBHH", 5, mascara, x, y))
 
-    async def clic(self, x: int, y: int) -> None:
+    async def _clic_directo(self, x: int, y: int) -> None:
         """Mover, esperar, bajar, mantener `click_hold_ms` y soltar."""
         x = max(0, min(self.ancho - 1, int(x)))
         y = max(0, min(self.alto - 1, int(y)))
@@ -267,7 +317,7 @@ class Vnc:
         """Lleva el cursor a una esquina: si se queda sobre el botón pulsado, tapa sus letras."""
         await self._puntero(0, self.ancho - 3, self.alto - 3)
 
-    async def scroll(self, x: int, y: int, direccion: str, pasos: int = 3) -> None:
+    async def _scroll_directo(self, x: int, y: int, direccion: str, pasos: int = 3) -> None:
         """Rueda del mouse sobre (x, y): botón 4 = arriba, botón 5 = abajo."""
         mascara = 8 if direccion == "arriba" else 16
         await self._puntero(0, x, y)
@@ -290,14 +340,31 @@ class Vnc:
                 await self._evento_tecla(s, False)
         await asyncio.sleep(0.03)
 
-    async def tecla(self, combinacion: str) -> None:
+    async def _tecla_directo(self, combinacion: str) -> None:
         """Una tecla o combinación: 'enter', 'tab', 'ctrl+a'."""
         simbolos = [keysym(p) for p in combinacion.split("+")]
         await self._pulsar(simbolos, self._cfg.key_hold_ms)
 
-    async def escribir(self, texto: str, reemplazar: bool = True) -> None:
+    async def _escribir_directo(self, texto: str, reemplazar: bool = True) -> None:
         """Escribe el texto tal cual (tildes, ñ, # y @). Con `reemplazar`, Ctrl+A antes."""
         if reemplazar:
-            await self.tecla("ctrl+a")
+            await self._tecla_directo("ctrl+a")
         for ch in texto:
             await self._pulsar([keysym(ch)], self._cfg.type_hold_ms)
+
+    # ---- API pública: lecturas y acciones protegidas contra cortes
+    async def capturar(self) -> np.ndarray:
+        """Captura completa. Si la conexión se corta, reconecta y vuelve a pedirla."""
+        return await self._protegido(self._capturar_directo, repetir=True)
+
+    async def clic(self, x: int, y: int) -> None:
+        await self._protegido(lambda: self._clic_directo(x, y), repetir=False)
+
+    async def scroll(self, x: int, y: int, direccion: str, pasos: int = 3) -> None:
+        await self._protegido(lambda: self._scroll_directo(x, y, direccion, pasos), repetir=False)
+
+    async def tecla(self, combinacion: str) -> None:
+        await self._protegido(lambda: self._tecla_directo(combinacion), repetir=False)
+
+    async def escribir(self, texto: str, reemplazar: bool = True) -> None:
+        await self._protegido(lambda: self._escribir_directo(texto, reemplazar), repetir=False)

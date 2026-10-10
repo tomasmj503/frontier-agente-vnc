@@ -15,7 +15,7 @@ from app.llm import Decision, ErrorLlm, Llm, RespuestaLlm
 from app.screen import Elemento, Vista, a_png, mirar, ubicar_boton
 from app.secretos import ocultar
 from app.supervisor import Supervisor
-from app.vnc import ErrorVnc, Vnc
+from app.vnc import CORTES, ConexionRestablecida, ErrorVnc, Vnc
 
 MAX_RECHAZOS_SEGUIDOS = 4
 MAX_FORMATO_SEGUIDOS = 3
@@ -40,6 +40,15 @@ class Progreso:
     notas: list[str] = field(default_factory=list)  # apuntes de la IA, se le devuelven en cada paso
 
 
+class _NoEncontrado(Exception):
+    """clic_zona no halló el botón: no se tocó nada y la IA debe corregir la zona."""
+
+    def __init__(self, aviso: str, rechazos: int):
+        super().__init__(aviso)
+        self.aviso = aviso
+        self.rechazos = rechazos
+
+
 @dataclass(frozen=True)
 class Resultado:
     estado: str   # 'terminada' | 'fallida'
@@ -59,6 +68,16 @@ class Agente:
     # ------------------------------------------------------------ ciclo principal
     async def ejecutar(self, tarea: str, url: str, password: str, progreso: Progreso,
                        bitacora: Bitacora) -> Resultado:
+        """Corre la tarea. Si la conexión se corta y no se logra recuperar, termina `fallida`."""
+        try:
+            return await self._ejecutar(tarea, url, password, progreso, bitacora)
+        except (ErrorVnc, *CORTES) as e:
+            return self._fallo(
+                progreso, f"Se cortó la conexión con el escritorio y no se pudo recuperar "
+                          f"({type(e).__name__}).")
+
+    async def _ejecutar(self, tarea: str, url: str, password: str, progreso: Progreso,
+                        bitacora: Bitacora) -> Resultado:
         secretos = [password, self.cfg.team_token, self.cfg.openrouter_api_key]
         llm = Llm(self.cfg, secretos)
         supervisor = Supervisor(tarea=tarea, secretos=secretos)
@@ -145,27 +164,33 @@ class Agente:
 
                 descripcion = self._describir(d, vista)
                 t_acc = time.perf_counter()
-                if d.accion == "clic_zona":
-                    caja = await asyncio.to_thread(
-                        ubicar_boton, vista.imagen, d.texto, d.zona_x, d.zona_y, self.cfg.ocr_lang)
-                    if caja is None:  # no se toca nada: se le avisa a la IA para que corrija la zona
-                        rechazos += 1
-                        aviso = (f"No encontré un botón «{d.texto}» cerca de ({d.zona_x}, {d.zona_y}). "
-                                 "Mira de nuevo la captura y da otra zona, o usa un número de la lista.")
-                        supervisor.descartar_ultima()  # no se ejecutó: no cuenta para los ciclos
-                        progreso.historial.append(f"{n}. clic_zona «{d.texto}» → no se encontró")
-                        if rechazos >= MAX_RECHAZOS_SEGUIDOS:
-                            return self._fallo(progreso, aviso)
-                        avisos.append(aviso)
-                        continue
-                    cx, cy = caja[0] + caja[2] // 2, caja[1] + caja[3] // 2
-                    descripcion = f"clic en el botón «{d.texto}» ubicado en ({cx}, {cy})"
-                    await vnc.clic(cx, cy)
-                else:
-                    await self._actuar(vnc, d, vista)
+                try:
+                    interrumpida = await self._ejecutar_accion(vnc, d, vista, supervisor, progreso, n,
+                                                               avisos, rechazos)
+                except _NoEncontrado as ne:
+                    rechazos = ne.rechazos
+                    if rechazos >= MAX_RECHAZOS_SEGUIDOS:
+                        return self._fallo(progreso, ne.aviso)
+                    continue
+                if interrumpida:  # se cortó la conexión y se restableció: mirar de nuevo, no repetir
+                    supervisor.descartar_ultima()
+                    progreso.historial.append(
+                        f"{n}. {descripcion} → se cortó la conexión y se restableció (no se repitió)")
+                    avisos.append(
+                        "La conexión con el escritorio se cortó y se restableció mientras ejecutabas tu "
+                        "última acción: puede haberse ejecutado, quedado a medias o no haberse hecho. "
+                        "Revisa la pantalla actual antes de decidir y NO repitas esa acción a ciegas.")
+                    vista = await mirar(vnc, self.cfg)
+                    progreso.seg_espera += vista.espera_s
+                    progreso.seg_ocr += vista.ocr_s
+                    continue
                 progreso.seg_accion += time.perf_counter() - t_acc
+                reconexiones_antes = vnc.reconexiones
                 nueva = await mirar(vnc, self.cfg, antes=vista.imagen,
                                     exigir_cambio=(d.accion in ("clic", "clic_zona")))
+                if vnc.reconexiones > reconexiones_antes:
+                    avisos.append("La conexión con el escritorio se cortó y se restableció: la pantalla "
+                                  "que ves es la actual.")
                 progreso.seg_espera += nueva.espera_s
                 progreso.seg_ocr += nueva.ocr_s
                 supervisor.registrar_resultado(nueva.cambio)
@@ -181,6 +206,31 @@ class Agente:
                 vista = nueva
 
     # ------------------------------------------------------------ actuar
+    async def _ejecutar_accion(self, vnc: Vnc, d: Decision, vista: Vista, supervisor: Supervisor,
+                               progreso: Progreso, n: int, avisos: list[str], rechazos: int) -> bool:
+        """Ejecuta la acción. Devuelve True si la conexión se cortó y se restableció a mitad de ella.
+
+        Para `clic_zona` primero ubica el botón; si no lo halla no toca nada y lanza `_NoEncontrado`.
+        """
+        try:
+            if d.accion == "clic_zona":
+                caja = await asyncio.to_thread(
+                    ubicar_boton, vista.imagen, d.texto, d.zona_x, d.zona_y, self.cfg.ocr_lang)
+                if caja is None:
+                    supervisor.descartar_ultima()  # no se ejecutó: no cuenta para los ciclos
+                    rechazos += 1
+                    aviso = (f"No encontré un botón «{d.texto}» cerca de ({d.zona_x}, {d.zona_y}). "
+                             "Mira de nuevo la captura y da otra zona, o usa un número de la lista.")
+                    progreso.historial.append(f"{n}. clic_zona «{d.texto}» → no se encontró")
+                    avisos.append(aviso)
+                    raise _NoEncontrado(aviso, rechazos)
+                await vnc.clic(caja[0] + caja[2] // 2, caja[1] + caja[3] // 2)
+            else:
+                await self._actuar(vnc, d, vista)
+        except ConexionRestablecida:
+            return True
+        return False
+
     async def _actuar(self, vnc: Vnc, d: Decision, vista: Vista) -> None:
         if d.accion == "clic":
             e = vista.por_numero(d.numero)

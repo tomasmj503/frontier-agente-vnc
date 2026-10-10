@@ -87,6 +87,8 @@ class Config:
     # VNC
     vnc_connect_retries: int
     vnc_open_timeout_s: float
+    vnc_reconnects: int          # cuántas veces se reconecta si se corta durante la tarea
+    vnc_read_timeout_s: float    # espera máxima por datos del escritorio (conexión colgada)
 
     # Lectura de texto
     ocr_lang: str
@@ -125,6 +127,8 @@ class Config:
             screen_first_wait_s=_numero("SCREEN_FIRST_WAIT_S", 0.6),
             vnc_connect_retries=int(_numero("VNC_CONNECT_RETRIES", 1)),
             vnc_open_timeout_s=_numero("VNC_OPEN_TIMEOUT_S", 20),
+            vnc_reconnects=int(_numero("VNC_RECONNECTS", 1)),
+            vnc_read_timeout_s=_numero("VNC_READ_TIMEOUT_S", 20),
             ocr_lang=_texto("OCR_LANG", "spa"),
             ocr_scale=_numero("OCR_SCALE", 2),
             ocr_botones=_booleano("OCR_BOTONES", True),

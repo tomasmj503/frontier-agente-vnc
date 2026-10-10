@@ -142,6 +142,7 @@ class VncFalso:
 
     def __init__(self):
         self.acciones = []
+        self.reconexiones = 0
 
     async def __aenter__(self):
         return self
