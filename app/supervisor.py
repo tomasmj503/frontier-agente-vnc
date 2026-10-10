@@ -27,6 +27,13 @@ _TOTAL_PROGRAMA = re.compile(
 _CONFIRMA_UNICA = re.compile(
     r"\b(?:[uú]nica|sola)\s+p[áa]gina\b|\bno hay m[áa]s p[áa]ginas\b|\b[uú]ltima p[áa]gina\b", re.I)
 _NUMERO = re.compile(r"\d[\d.,]*")
+# Botones que guardan: nombres distintos según el programa y la versión.
+_PALABRAS_APLICAR = re.compile(
+    r"\b(?:guardar|aplicar|grabar|salvar|actualizar|registrar|enviar|confirmar)\b", re.I)
+# Señales de que el guardado se hizo (aviso, mensaje de éxito).
+_CONFIRMACION = re.compile(
+    r"cambios aplicados|\bguardad[oa]s?\b|\baplicad[oa]s?\b|\bactualizad[oa]s?\b|\bregistrad[oa]s?\b|"
+    r"\bcread[oa]\b|correctamente|[eé]xito|exitos[oa]", re.I)
 MAX_RECHAZOS_CONTEO = 2
 
 
@@ -50,6 +57,10 @@ class Supervisor:
     _hay_paginacion: bool = False
     _totales: set[str] = field(default_factory=set)
     _rechazos_conteo: int = 0
+    # Guardado sin que el formulario se cierre: una sola vez por registro y confirmado en pantalla
+    _aplicado: bool = False
+    _confirmacion_vista: bool = False
+    _avisos_confirmacion: int = 0
 
     def _observar(self, vista: Vista) -> None:
         """Anota la paginación y los totales que muestra esta pantalla."""
@@ -67,6 +78,8 @@ class Supervisor:
             if t:
                 crudo = next(g for g in t.groups() if g)
                 self._totales.add(re.sub(r"\D", "", crudo))
+            if self._aplicado and _CONFIRMACION.search(e.texto):
+                self._confirmacion_vista = True
 
     def revisar(self, d: Decision, vista: Vista) -> Veredicto:
         self._observar(vista)
@@ -80,11 +93,32 @@ class Supervisor:
         # 2) Teclas que no sirven.
         if d.accion == "tecla" and d.tecla.lower().replace(" ", "") in TECLAS_BLOQUEADAS:
             return Veredicto(False, f"La tecla {d.tecla} no sirve en este programa. "
-                                    "Para salir de un formulario sin guardar usa el botón 'Volver'.")
+                                    "Para salir de un formulario sin guardar usa su botón de salida "
+                                    "(Volver/Cancelar/Cerrar).")
 
         # 3) Nunca escribir una contraseña o clave en el programa.
         if d.accion == "escribir" and contiene_secreto(d.texto, self.secretos):
             return Veredicto(False, "No debes escribir contraseñas ni claves en el programa.")
+
+        # 3b) Guardar/aplicar: una sola vez por registro (el formulario puede seguir abierto).
+        if d.accion in ("clic", "clic_zona"):
+            elemento = vista.por_numero(d.numero) if d.accion == "clic" else None
+            texto_boton = elemento.texto if elemento is not None else d.texto
+            if _PALABRAS_APLICAR.search(texto_boton):
+                if self._aplicado:
+                    return Veredicto(False, (
+                        "Ya aplicaste los cambios de este registro y el formulario sigue abierto: en "
+                        "esta versión es normal, NO es un fallo. No lo pulses otra vez (podría "
+                        "duplicar o alterar datos). Confírmalo leyendo la pantalla (aviso de "
+                        "confirmación, código asignado o los datos en los campos) y termina. Solo "
+                        "repite si cambiaste un campo después."))
+                self._aplicado = True
+                self._confirmacion_vista = False
+                self._avisos_confirmacion = 0
+            else:
+                self._aplicado = False  # salió de ese contexto: cerrar, menú u otro registro
+        elif d.accion == "escribir":
+            self._aplicado = False  # cambió un dato: un nuevo guardado ya es legítimo
 
         # 4) Bucles: la misma acción sobre la misma pantalla, una y otra vez.
         firma = (f"{d.accion}|{d.numero}|{d.texto}|{d.en}|{d.tecla}|{d.direccion}|"
@@ -108,6 +142,15 @@ class Supervisor:
                 return Veredicto(False, "La pantalla muestra un texto de error o aviso. Revisa que el "
                                         "dato realmente quedó guardado igual a lo pedido antes de "
                                         "dar 'terminada'; si no quedó, reporta 'fallida'.")
+            # 5a) Si aplicó cambios y no se ve la confirmación, pedir una verificación (una vez).
+            if self._aplicado and not self._confirmacion_vista and self._avisos_confirmacion < 1 \
+                    and not _ES_PREGUNTA.search(self.tarea):
+                self._avisos_confirmacion += 1
+                return Veredicto(False, (
+                    "Aplicaste cambios pero no veo una confirmación en la pantalla. Revisa: ¿hay un aviso "
+                    "('Cambios aplicados', 'Guardado'), el registro muestra su código o los campos tienen "
+                    "los datos pedidos? Si lo confirmas, dilo en el resumen y termina; si hay un error, "
+                    "reporta 'fallida'. NO pulses guardar/aplicar otra vez."))
             # 5b) Un conteo no se da "a ojo" si el programa tiene paginación sin recorrer o un total.
             veredicto = self._revisar_conteo(d)
             if veredicto is not None:

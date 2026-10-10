@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from app.bitacora import Bitacora
 from app.config import Config
 from app.llm import Decision, ErrorLlm, Llm, RespuestaLlm
-from app.screen import Elemento, Vista, a_png, mirar, ubicar_texto_en_zona
+from app.screen import Elemento, Vista, a_png, mirar, ubicar_boton
 from app.secretos import ocultar
 from app.supervisor import Supervisor
 from app.vnc import ErrorVnc, Vnc
@@ -147,7 +147,7 @@ class Agente:
                 t_acc = time.perf_counter()
                 if d.accion == "clic_zona":
                     caja = await asyncio.to_thread(
-                        ubicar_texto_en_zona, vista.imagen, d.texto, d.zona_x, d.zona_y, self.cfg.ocr_lang)
+                        ubicar_boton, vista.imagen, d.texto, d.zona_x, d.zona_y, self.cfg.ocr_lang)
                     if caja is None:  # no se toca nada: se le avisa a la IA para que corrija la zona
                         rechazos += 1
                         aviso = (f"No encontré un botón «{d.texto}» cerca de ({d.zona_x}, {d.zona_y}). "
