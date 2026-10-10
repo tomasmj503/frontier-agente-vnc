@@ -97,3 +97,8 @@ def test_ningun_archivo_de_codigo_nombra_la_app_de_practica():
     archivos = [*Path(RAIZ / "app").rglob("*.py"), RAIZ / "bench.py", *Path(RAIZ / "tests").rglob("*.py")]
     malos = [str(a.relative_to(RAIZ)) for a in archivos if palabra.search(a.read_text())]
     assert malos == []
+
+
+def test_una_razon_muy_larga_se_recorta_en_vez_de_rechazarse():
+    d = Decision.model_validate({"razon": "x" * 900, "accion": "tecla", "tecla": "tab"})
+    assert len(d.razon) == 300 and d.accion == "tecla"

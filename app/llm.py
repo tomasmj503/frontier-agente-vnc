@@ -17,7 +17,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from app.config import Config
 from app.secretos import ocultar
@@ -29,7 +29,7 @@ MAX_ELEMENTOS = 220  # tope de textos que se le muestran a la IA por paso
 class Decision(BaseModel):
     """Una acción. Los campos que no aplican van vacíos (0 o "") para que el formato sea fijo."""
 
-    razon: str = Field(max_length=300, description="por qué, en una frase")
+    razon: str = Field(default="", description="por qué, en una frase")
     accion: Literal["clic", "escribir", "tecla", "scroll", "terminar"]
     numero: int = 0       # clic: número del texto donde hacer clic
     texto: str = ""       # escribir: el texto exacto a escribir
@@ -39,6 +39,12 @@ class Decision(BaseModel):
     direccion: Literal["arriba", "abajo", "ninguna"] = "ninguna"
     estado: Literal["terminada", "fallida", "ninguno"] = "ninguno"
     resumen: str = ""     # terminar: qué se hizo o por qué falló (con 'respuesta:' si es pregunta)
+
+    @field_validator("razon", mode="after")
+    @classmethod
+    def _recortar_razon(cls, v: str) -> str:
+        """La razón solo sirve para la bitácora: si viene larga se recorta, nunca se rechaza."""
+        return v if len(v) <= 300 else v[:297] + "..."
 
     @model_validator(mode="after")
     def _coherente(self) -> "Decision":
