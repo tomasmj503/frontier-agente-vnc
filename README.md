@@ -80,9 +80,8 @@ Otras carpetas: `tests/` (pruebas y capturas reales de muestra), `pruebas/` (los
 `verification-loop/run_cases.py` es de otro reto y **no se usa**: aquí el banco es `bench.py`).
 
 ## Estado publicado
-El equipo confirmó el servidor en `ec96230`. En GitHub hay un commit más (`f6f831a`, regla de listas
-desplegables); no tengo confirmación de que ya esté publicado: revisar con `git log --oneline -1` en el
-servidor.
+El servidor corre `f6f831a` (deploy de las 18:28, "Listo", confirmado por el equipo), que incluye la regla
+de listas desplegables. Comprobarlo con `git log --oneline -1` en el servidor.
 
 ## Lo que NO se construyó del diseño
 Las capas 2 y 3 de [DISENO.md](DISENO.md) (habilidades generales sin IA y procedimientos aprendidos por

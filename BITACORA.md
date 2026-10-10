@@ -12,8 +12,8 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 ## Resumen ejecutivo (leer primero)
 - **Qué es:** un agente que recibe una orden, opera un programa sin API por VNC y reporta `terminada` o
   `fallida`. Código en `app/`, banco en `bench.py`, cómo correrlo en el [README](README.md).
-- **Publicado:** el servidor corre `ec96230`. En GitHub hay `f6f831a` (regla de listas desplegables); su
-  publicación **no está confirmada**.
+- **Publicado:** el servidor corre `f6f831a` (deploy de las 18:28, "Listo", confirmado por el equipo), que
+  incluye la regla de listas desplegables.
 - **Local (Mac, escritorio de práctica, medido):** las corridas completas de los 5 casos dieron 5/5 en las
   corridas 9, 10 y 15; 4/5 en las 12 y 18; 3/5 en la 16; 1/5 en la 11 (regresión mía, corregida). La 20 (solo E1, E3 y E4) pasó 3/3. 55–130 s y US$0.03–0.07 por caso (metas: <4 min y ≤ US$0.10).
 - **Servidor (medido por el equipo, no por mí):** lectura de pantalla **13 s → 1.3 s**; en el set oculto
@@ -53,7 +53,7 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 19 | corte REAL de la conexión a mitad de tarea (E5) | | | | | pasó 103 s (`fallida` correcta, con los dos documentos) |
 | 20 | regla de listas desplegables (solo prompt) | pasó 100 s, 13 pasos, US$0.058 | | pasó 100 s, 11 pasos, US$0.064 | pasó 106 s, 11 pasos, US$0.055 | |
 
-Publicado en `frontier.jutilabs.com`: **el servidor ya corre `ec96230`** (lo confirmaste después de la corrida 19). Las corridas publicadas de abajo que medí yo son **anteriores** a esa publicación; con `ec96230` no he medido nada contra el servidor:
+Publicado en `frontier.jutilabs.com`: tras la corrida 19 el servidor pasó a `ec96230` y hoy corre **`f6f831a`** (deploy de las 18:28). Las corridas publicadas de abajo que medí yo son **anteriores** a esa publicación; con `ec96230` no he medido nada contra el servidor:
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
 ---
@@ -543,7 +543,8 @@ en las bitácoras (con captura):
   - Es **1 corrida** por caso, y la lista «Motivo» de la clínica **no se reprodujo**: no tengo esa app en local.
     No se probó el caso exacto del hallazgo.
   - No se corrieron E2 ni E5 (no usan listas).
-- **Pendiente:** volver a mirar el set oculto con una versión publicada que traiga esta regla (no se publicó).
+- **Pendiente:** mirar los resultados del set oculto posteriores al deploy de las 18:28 (`f6f831a`, que ya trae
+  esta regla); en esta bitácora no tengo separados los resultados de antes y de después de ese deploy.
 
 ### 11) Datos medidos en el servidor, versión publicada (los midió el equipo; me los pasaste)
 | Qué | Antes | Después |
@@ -555,7 +556,9 @@ en las bitácoras (con captura):
   evaluador**. Que termine solo y rápido no demuestra que el resultado sea correcto.
 - **Fallo real visto en el set oculto:** la lista desplegable «Motivo» al cancelar una cita en la clínica
   (muestra «(seleccione)»): la IA la buscaba con `clic_zona` y llegaba al tope. Se agregó la regla de listas
-  desplegables (cambio 10, `f6f831a`). Que **esté publicada en el servidor no está confirmado**.
+  desplegables (cambio 10, `f6f831a`), **publicada en el servidor con el deploy de las 18:28** (confirmado por
+  el equipo). Ojo: la ventana de "6 de 7 desde las 18:15" empieza **antes** de ese deploy; no sé qué casos
+  corrieron con `ec96230` y cuáles con `f6f831a`.
 - **Qué NO se midió:** la versión final completa en el servidor (solo la lectura y el set oculto de arriba);
   tampoco `POST /tasks` después del cambio de hilos, ni cuánto tarda `deploy.sh` entero.
 - **Cómo se explica la mejora de tiempo (hipótesis):** antes cada tarea gastaba ~13 s por pantalla solo en
@@ -572,7 +575,7 @@ en las bitácoras (con captura):
 - **E3 (conteo de filas):** con la opción A acertó 4 de 4 (antes ~la mitad). Pocas muestras; si en la evaluación falla, el síntoma sería un conteo off-by-uno.
 - **`OMP_THREAD_LIMIT=1` en el servidor:** medido: lectura de 13 s a 1.3 s por pantalla (cambio 11). En una Mac con muchos núcleos podría ser más lenta si se copia `.env.example`.
 - **E3:** sigue siendo el caso más inestable (45 en 7 de 9 corridas recientes; falló con 16 y con 44). El método elegido por la IA (filtrar por estado o contar a ojo) cambia de una corrida a otra.
-- **Servidor:** publicado `ec96230` (confirmado por el equipo); `f6f831a` (listas desplegables) está en GitHub y **no** tengo confirmación de que esté publicado. Datos medidos en el servidor: cambio 11.
+- **Servidor:** publicado `f6f831a` (deploy de las 18:28, "Listo", confirmado por el equipo). Datos medidos en el servidor: cambio 11.
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
 - **Límites conocidos, con honestidad:**
   - **Nombres del caso E3 dentro del prompt** ("Ferretería Ruiz", "…e Hijos", "…Hnos"): ejemplos de la app de
