@@ -10,6 +10,7 @@ Con --base se usa ese servicio tal cual (el modelo lo fija su .env, --modelo no 
 Lee del .env: TEAM_TOKEN, DESKTOP_URL, DESKTOP_PASSWORD, DESKTOP_TOKEN. Nunca imprime secretos.
 """
 import argparse
+import threading
 import json
 import os
 import re
@@ -92,7 +93,48 @@ def arrancar_local(modelo: str | None) -> tuple[subprocess.Popen, str]:
     raise SystemExit("El servicio local no arrancó.")
 
 
+class Latido:
+    """Consulta GET /health cuatro veces por segundo y guarda cuánto tarda cada respuesta.
+
+    Si el servicio se bloquea haciendo trabajo pesado, estas respuestas se alargan.
+    """
+
+    def __init__(self, base: str, token: str):
+        self.url, self.cab = f"{base}/health", {"Authorization": f"Bearer {token}"}
+        self.ms: list[float] = []
+        self.errores = 0
+        self._parar = threading.Event()
+        self._hilo = threading.Thread(target=self._correr, daemon=True)
+
+    def _correr(self) -> None:
+        with httpx.Client(timeout=20) as c:
+            while not self._parar.is_set():
+                t0 = time.perf_counter()
+                try:
+                    c.get(self.url, headers=self.cab)
+                    self.ms.append((time.perf_counter() - t0) * 1000)
+                except httpx.HTTPError:
+                    self.errores += 1
+                self._parar.wait(0.25)
+
+    def __enter__(self) -> "Latido":
+        self._hilo.start()
+        return self
+
+    def __exit__(self, *_) -> None:
+        self._parar.set()
+        self._hilo.join(timeout=5)
+
+
 def correr_caso(caso: dict, base: str, tope_s: float, secretos: list[str]) -> dict:
+    with Latido(base, os.environ["TEAM_TOKEN"]) as latido:
+        fila = _correr_caso(caso, base, tope_s, secretos)
+    fila["latido_ms"] = sorted(latido.ms)
+    fila["latido_errores"] = latido.errores
+    return fila
+
+
+def _correr_caso(caso: dict, base: str, tope_s: float, secretos: list[str]) -> dict:
     team = {"Authorization": f"Bearer {os.environ['TEAM_TOKEN']}"}
     esc_url = os.environ["DESKTOP_URL"]
     esc = base_http(esc_url)
@@ -231,6 +273,12 @@ def main() -> None:
             c = sorted(c)
             print(f"\n  [{f['id']}] GET /tasks/{{id}}: {len(c)} consultas · mediana {c[len(c) // 2]:.0f} ms"
                   f" · más lenta {c[-1]:.0f} ms · POST /tasks {f['post_s'] * 1000:.0f} ms")
+    for f in filas:
+        h = f.get("latido_ms")
+        if h:
+            print(f"  [{f['id']}] /health durante la tarea: {len(h)} consultas · "
+                  f"mediana {h[len(h) // 2]:.0f} ms · p95 {h[int(len(h) * 0.95)]:.0f} ms · "
+                  f"más lenta {h[-1]:.0f} ms · errores {f['latido_errores']}")
     if any(f.get("tiempos") and f["tiempos"].get("seg_ia") is not None for f in filas):
         print("\n  Dónde se va el tiempo (segundos, por caso)")
         print("  caso   total   pantalla   textos     IA    acciones   otros   s/paso")

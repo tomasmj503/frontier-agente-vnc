@@ -209,9 +209,13 @@ class Vnc:
                     if enc != 0:
                         raise ErrorVnc(f"codificación inesperada {enc}")
                     datos = await self._leer(w * h * 4)
-                    for r in range(h):
-                        o = ((y + r) * self.ancho + x) * 4
-                        self._fb[o:o + w * 4] = datos[r * w * 4:(r + 1) * w * 4]
+                    if x == 0 and w == self.ancho:  # ancho completo: una sola copia
+                        o = y * self.ancho * 4
+                        self._fb[o:o + len(datos)] = datos
+                    else:
+                        for r in range(h):
+                            o = ((y + r) * self.ancho + x) * 4
+                            self._fb[o:o + w * 4] = datos[r * w * 4:(r + 1) * w * 4]
                 return
             if tipo == 1:  # SetColourMapEntries
                 await self._leer(1)
@@ -231,8 +235,12 @@ class Vnc:
         """Captura completa. Devuelve un arreglo alto×ancho×3 (RGB, uint8)."""
         await self._enviar(struct.pack(">BBHHHH", 3, 0, 0, 0, self.ancho, self.alto))
         await self._leer_actualizacion()
+        return await asyncio.to_thread(self._a_rgb)
+
+    def _a_rgb(self) -> np.ndarray:
+        """B,G,R,X -> R,G,B (copia de 4 MB: en un hilo). Nadie escribe _fb mientras tanto."""
         bgra = np.frombuffer(bytes(self._fb), dtype=np.uint8).reshape(self.alto, self.ancho, 4)
-        return bgra[:, :, 2::-1].copy()  # B,G,R,X -> R,G,B
+        return bgra[:, :, 2::-1].copy()
 
     # ---- actuar
     async def _puntero(self, mascara: int, x: int, y: int) -> None:

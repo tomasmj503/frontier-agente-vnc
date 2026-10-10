@@ -7,6 +7,8 @@ import asyncio
 import io
 import re
 import time
+import unicodedata
+from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -80,6 +82,12 @@ def hay_cambio(a: np.ndarray, b: np.ndarray) -> bool:
     return int(dif.sum()) >= _MIN_PIXELES_CAMBIO
 
 
+def _comparar(anterior: np.ndarray, nueva: np.ndarray, antes: np.ndarray | None,
+              umbral: float) -> tuple[bool, bool]:
+    """(¿coincide con la captura anterior?, ¿cambió respecto de `antes`?). Trabajo de numpy: va en un hilo."""
+    return fraccion_distinta(anterior, nueva) < umbral, antes is None or hay_cambio(antes, nueva)
+
+
 async def capturar_quieta(
     vnc: Vnc, cfg: Config, antes: np.ndarray | None = None, exigir_cambio: bool = False
 ) -> tuple[np.ndarray, bool, bool, float]:
@@ -87,22 +95,20 @@ async def capturar_quieta(
 
     Con `exigir_cambio`, además la pantalla debe diferir de `antes`: después de un clic, dos
     capturas viejas serían iguales entre sí y engañarían. Hay un tope de `screen_stable_max_s`.
+    Las comparaciones de imágenes corren en un hilo para no frenar las respuestas del servicio.
     Devuelve (imagen, quieta, cambio, segundos).
     """
     t0 = time.perf_counter()
     await asyncio.sleep(cfg.screen_first_wait_s)
     actual = await vnc.capturar()
     quieta = False
-    while True:
-        transcurrido = time.perf_counter() - t0
-        cambio = antes is None or hay_cambio(antes, actual)
-        if transcurrido >= cfg.screen_stable_max_s:
-            break
+    cambio = antes is None or await asyncio.to_thread(hay_cambio, antes, actual)
+    while time.perf_counter() - t0 < cfg.screen_stable_max_s:
         await asyncio.sleep(cfg.screen_poll_s)
         siguiente = await vnc.capturar()
-        coincide = fraccion_distinta(actual, siguiente) < cfg.screen_stable_diff
+        coincide, cambio = await asyncio.to_thread(
+            _comparar, actual, siguiente, antes, cfg.screen_stable_diff)
         actual = siguiente
-        cambio = antes is None or hay_cambio(antes, actual)
         if coincide and (cambio or not exigir_cambio):
             quieta = True
             break
@@ -184,7 +190,7 @@ def _contenida(f: tuple[str, int, int, int, int], caja: tuple[int, int, int, int
     return x - 2 <= cx <= x + w + 2 and y - 2 <= cy <= y + h + 2
 
 
-def _componentes(mascara: np.ndarray) -> list[tuple[int, int, int, int]]:
+def _componentes(mascara: np.ndarray, min_alto: int = 20) -> list[tuple[int, int, int, int]]:
     """Cajas (x, y, w, h) de las manchas de la máscara con tamaño de botón.
 
     Une las franjas de píxeles que se tocan de una fila a la siguiente. Se descartan las
@@ -226,7 +232,7 @@ def _componentes(mascara: np.ndarray) -> list[tuple[int, int, int, int]]:
     salida = []
     for x0, y0, x1, y1, pix in cajas.values():
         w, h = x1 - x0, y1 - y0
-        if 28 <= w <= 260 and 20 <= h <= 60 and pix / (w * h) > 0.45:
+        if 28 <= w <= 260 and min_alto <= h <= 60 and pix / (w * h) > 0.45:
             salida.append((x0, y0, w, h))
     return salida
 
@@ -287,6 +293,60 @@ def leer_textos(imagen: np.ndarray, lang: str, escala: float = 2.0, botones: boo
     # Filas: agrupa por franja vertical de ~10 px para que "arriba a abajo" no dependa de 1-2 px.
     frases.sort(key=lambda f: (round(f[2] / 10), f[1]))
     return [Elemento(n=i + 1, texto=t, x=x, y=y, w=w, h=h) for i, (t, x, y, w, h) in enumerate(frases)]
+
+
+def _normalizar(t: str) -> str:
+    sin_tildes = "".join(c for c in unicodedata.normalize("NFD", t) if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9 ]", "", sin_tildes.lower()).strip()
+
+
+def _cajas_de_boton_en_zona(zona: np.ndarray) -> list[tuple[int, int, int, int]]:
+    """Manchas lisas del tamaño de un botón dentro de la zona (cara del botón, separada del
+    fondo por su borde). Se prueban los colores más frecuentes de la zona, uno por uno, con
+    tolerancia suficiente para caras con degradado."""
+    cuantizado = (zona // 8).reshape(-1, 3).astype(np.int32)  # int32: evita desbordar uint8
+    claves = cuantizado[:, 0] * 1024 + cuantizado[:, 1] * 32 + cuantizado[:, 2]
+    valores, cuentas = np.unique(claves, return_counts=True)
+    cajas: set[tuple[int, int, int, int]] = set()
+    for idx in np.argsort(cuentas)[::-1][:12]:
+        if cuentas[idx] < 120:
+            break
+        v = int(valores[idx])
+        color = np.array([(v // 1024) * 8 + 4, ((v // 32) % 32) * 8 + 4, (v % 32) * 8 + 4])
+        mascara = np.all(np.abs(zona.astype(np.int16) - color) <= 14, axis=2)
+        cajas.update(_componentes(mascara, min_alto=16))
+    r, g, b = (zona[:, :, i].astype(np.int16) for i in range(3))
+    cajas.update(_componentes(((r + g + b) < 3 * 150) & (b - r > 25), min_alto=16))  # botones azules
+    return sorted(cajas)
+
+
+def ubicar_texto_en_zona(
+    imagen: np.ndarray, texto: str, x: int, y: int, lang: str,
+    mitad_ancho: int = 200, mitad_alto: int = 60,
+) -> tuple[int, int, int, int] | None:
+    """Busca el botón `texto` cerca de (x, y) y devuelve su caja exacta (x, y, w, h).
+
+    Sirve para botones que la lectura de toda la pantalla no encuentra: la IA (que ve la
+    captura) dice "está más o menos aquí"; el código busca dentro de esa zona las manchas
+    del tamaño de un botón y lee, recortadas, las más cercanas (un recorte ajustado sí se lee).
+    """
+    alto, ancho = imagen.shape[:2]
+    x0, y0 = max(0, x - mitad_ancho), max(0, y - mitad_alto)
+    x1, y1 = min(ancho, x + mitad_ancho), min(alto, y + mitad_alto)
+    if x1 - x0 < 30 or y1 - y0 < 20:
+        return None
+    objetivo = _normalizar(texto)
+    if not objetivo:
+        return None
+    zona = imagen[y0:y1, x0:x1]
+    candidatas = [(bx + x0, by + y0, bw, bh) for bx, by, bw, bh in _cajas_de_boton_en_zona(zona)]
+    candidatas.sort(key=lambda c: abs(c[0] + c[2] / 2 - x) + abs(c[1] + c[3] / 2 - y))
+    for caja in candidatas[:6]:
+        leido = _leer_boton(imagen, caja, lang)
+        n = _normalizar(leido)
+        if n and (SequenceMatcher(None, n, objetivo).ratio() >= 0.8 or objetivo in n.split()):
+            return caja
+    return None
 
 
 async def mirar(
