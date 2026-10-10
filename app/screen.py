@@ -8,12 +8,14 @@ import io
 import re
 import time
 import unicodedata
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 
 import numpy as np
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.config import Config
 from app.vnc import Vnc
@@ -26,7 +28,7 @@ _MIN_PIXELES_CAMBIO = 20
 _HUECO_MAX_ALTURAS = 1.2
 _CONFIANZA_MIN = 30
 # Tope de botones que se leen recortados por pantalla (cada uno cuesta ~0.1 s).
-MAX_BOTONES = 12
+MAX_BOTONES = 16
 
 
 @dataclass(frozen=True)
@@ -237,31 +239,124 @@ def _componentes(mascara: np.ndarray, min_alto: int = 20) -> list[tuple[int, int
     return salida
 
 
-def _rectangulos_oscuros(imagen: np.ndarray) -> list[tuple[int, int, int, int]]:
-    """Cajas (x, y, w, h) de los botones de fondo azul oscuro (texto blanco).
+def _luminancia(r: np.ndarray, g: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Luminosidad 0-255. En int32: con int16, 299 * 238 desborda y da valores negativos."""
+    return (299 * r.astype(np.int32) + 587 * g.astype(np.int32) + 114 * b.astype(np.int32)) // 1000
 
-    Se busca por color: fondo oscuro con más azul que rojo. Los botones grises con borde
-    (Siguiente, Limpiar) NO se detectan aquí: se probó un detector por color gris claro y
-    empeoraba la lectura al confundirse con las franjas de las tablas (medido).
+
+def _rectangulos_oscuros(imagen: np.ndarray) -> list[tuple[int, int, int, int]]:
+    """Cajas (x, y, w, h) de los botones de color (texto blanco sobre un fondo de acento).
+
+    Se busca por color: fondo oscuro y con color (azul, verde, rojo, naranja...), no solo azul.
+    Se conserva además la regla original (más azul que rojo) para no perder lo ya detectado.
     """
     r = imagen[:, :, 0].astype(np.int16)
     g = imagen[:, :, 1].astype(np.int16)
     b = imagen[:, :, 2].astype(np.int16)
     azul = ((r + g + b) < 3 * 150) & (b - r > 25)
-    return sorted(_componentes(azul), key=lambda c: (c[1], c[0]))[:MAX_BOTONES]
+    luminancia = _luminancia(r, g, b)
+    saturacion = np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b)
+    acento = (luminancia < 150) & (saturacion >= 40)
+    return sorted(_componentes(azul | acento), key=lambda c: (c[1], c[0]))
+
+
+def _tiene_borde(gris: np.ndarray, caja: tuple[int, int, int, int], minimo: int = 60) -> bool:
+    """¿La caja está rodeada por un borde claramente más oscuro que su cara?
+
+    Se mira el anillo a 1, 2 y 3 px de la caja (el brillo del botón puede dejar el borde
+    un par de píxeles más afuera) y se toma el más oscuro.
+    """
+    x, y, w, h = caja
+    alto, ancho = gris.shape
+    cara = gris[y + 2:y + h - 2, x + 2:x + w - 2]
+    if cara.size == 0:
+        return False
+    mejor = None
+    for d in (1, 2, 3):
+        x0, y0, x1, y1 = x - d, y - d, x + w - 1 + d, y + h - 1 + d
+        if x0 < 0 or y0 < 0 or x1 >= ancho or y1 >= alto:
+            continue
+        anillo = np.concatenate([gris[y0, x0:x1 + 1], gris[y1, x0:x1 + 1],
+                                 gris[y0:y1 + 1, x0], gris[y0:y1 + 1, x1]])
+        m = float(np.median(anillo))
+        mejor = m if mejor is None else min(mejor, m)
+    return mejor is not None and float(np.median(cara)) - mejor >= minimo
+
+
+def _rectangulos_neutros(imagen: np.ndarray) -> list[tuple[int, int, int, int]]:
+    """Cajas de botones grises con borde (Siguiente, Limpiar, Cerrar), sin confundirse con tablas.
+
+    Un botón es una mancha clara y sin color, con un borde mucho más oscuro que su cara y que
+    no forma parte de una rejilla. Las celdas de una tabla repiten tamaño en filas y columnas
+    y su borde es casi igual de claro que la cara: se descartan por esas dos razones.
+    """
+    r = imagen[:, :, 0].astype(np.int16)
+    g = imagen[:, :, 1].astype(np.int16)
+    b = imagen[:, :, 2].astype(np.int16)
+    gris_img = _luminancia(r, g, b)
+    saturacion = np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b)
+    claro = (saturacion <= 12) & (gris_img >= 225) & (gris_img <= 252)
+    cajas = [c for c in _componentes(claro, min_alto=16) if _tiene_borde(gris_img, c)]
+    salida = []
+    for c in cajas:
+        misma_fila = [o for o in cajas if o != c and abs(o[1] - c[1]) <= 3 and abs(o[3] - c[3]) <= 3]
+        misma_col = [o for o in cajas if o != c and abs(o[0] - c[0]) <= 3 and abs(o[2] - c[2]) <= 3
+                     and abs(o[1] - c[1]) > 3]
+        if len(misma_fila) >= 4 or len(misma_col) >= 3:  # parte de una rejilla (tabla)
+            continue
+        salida.append(c)
+    return sorted(salida, key=lambda c: (c[1], c[0]))
+
+
+def _solapa(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    ix = max(0, min(ax + aw, bx + bw) - max(ax, bx))
+    iy = max(0, min(ay + ah, by + bh) - max(ay, by))
+    return ix * iy > 0.5 * min(aw * ah, bw * bh)
+
+
+def _cajas_de_boton(imagen: np.ndarray, neutros: bool) -> list[tuple[int, int, int, int]]:
+    """Botones de color primero y después los grises; sin duplicados; con tope."""
+    cajas = list(_rectangulos_oscuros(imagen))
+    if neutros:
+        for c in _rectangulos_neutros(imagen):
+            if not any(_solapa(c, o) for o in cajas):
+                cajas.append(c)
+    return cajas[:MAX_BOTONES]
+
+
+_VARIANTES_BOTON = ((3, "inv", 8), (4, "gris", 7), (3, "orig", 8))  # (ampliación, imagen, modo de Tesseract)
 
 
 def _leer_boton(imagen: np.ndarray, caja: tuple[int, int, int, int], lang: str) -> str:
-    """Lee el texto de un botón recortado (Tesseract lo lee bien aislado, no en la página)."""
+    """Lee el texto de un botón recortado (Tesseract lo lee bien aislado, no en la página).
+
+    Se leen hasta 3 variantes (invertida, en grises y original) y se elige por mayoría:
+    medido, ninguna variante sola acierta todo (el aviso blanco sobre azul solo sale bien
+    invertido; "Filtrar" sale mejor en grises a 4x).
+    """
     x, y, w, h = caja
-    recorte = Image.fromarray(imagen[max(y - 3, 0):y + h + 3, max(x - 3, 0):x + w + 3])
-    recorte = recorte.resize((recorte.width * 3, recorte.height * 3), Image.LANCZOS)
-    for psm in (8, 13):
-        t = pytesseract.image_to_string(recorte, lang=lang, config=f"--psm {psm}")
-        t = _limpiar_boton(t)
+    recorte = Image.fromarray(imagen[max(y - 3, 0):y + h + 3, max(x - 3, 0):x + w + 3]).convert("RGB")
+    lecturas: list[str] = []
+    for escala, modo, psm in _VARIANTES_BOTON:
+        im = recorte.resize((recorte.width * escala, recorte.height * escala), Image.LANCZOS)
+        if modo == "inv":
+            im = ImageOps.invert(im.convert("L"))
+        elif modo == "gris":
+            im = im.convert("L")
+        t = _limpiar_boton(pytesseract.image_to_string(im, lang=lang, config=f"--psm {psm}"))
         if len(t) >= 2 and any(c.isalpha() for c in t):
-            return t
-    return ""
+            lecturas.append(t)
+        if len(lecturas) == 2 and _normalizar(lecturas[0]) == _normalizar(lecturas[1]):
+            return lecturas[0]  # las dos primeras coinciden: no hace falta la tercera
+    if not lecturas:
+        return ""
+    cuentas = Counter(_normalizar(t) for t in lecturas)
+    mejor, veces = cuentas.most_common(1)[0]
+    if veces >= 2:
+        return next(t for t in lecturas if _normalizar(t) == mejor)
+    return max(lecturas, key=len)  # sin acuerdo: la más larga
 
 
 def _limpiar_boton(t: str) -> str:
@@ -270,7 +365,8 @@ def _limpiar_boton(t: str) -> str:
     return " ".join(w for w in palabras if w)
 
 
-def leer_textos(imagen: np.ndarray, lang: str, escala: float = 2.0, botones: bool = True) -> list[Elemento]:
+def leer_textos(imagen: np.ndarray, lang: str, escala: float = 2.0, botones: bool = True,
+                neutros: bool = True) -> list[Elemento]:
     """Tesseract sobre la captura. Numera de arriba hacia abajo y de izquierda a derecha.
 
     - Se amplía la captura antes de leer (medido: a 2x acierta más textos que a 1x); las
@@ -284,12 +380,15 @@ def leer_textos(imagen: np.ndarray, lang: str, escala: float = 2.0, botones: boo
         img = img.resize((int(img.width * escala), int(img.height * escala)), Image.LANCZOS)
     frases = _ocr(img, lang, escala)
     if botones:
-        for caja in _rectangulos_oscuros(imagen):
-            texto = _leer_boton(imagen, caja, lang)
-            if not texto:
-                continue
-            frases = [f for f in frases if not _contenida(f, caja)]
-            frases.append((texto, *caja))
+        cajas = _cajas_de_boton(imagen, neutros)
+        if cajas:  # Tesseract corre como proceso aparte: leer varios botones a la vez ahorra tiempo
+            with ThreadPoolExecutor(max_workers=min(4, len(cajas))) as pool:
+                leidos = list(pool.map(lambda c: _leer_boton(imagen, c, lang), cajas))
+            for caja, texto in zip(cajas, leidos, strict=True):
+                if not texto:
+                    continue
+                frases = [f for f in frases if not _contenida(f, caja)]
+                frases.append((texto, *caja))
     # Filas: agrupa por franja vertical de ~10 px para que "arriba a abajo" no dependa de 1-2 px.
     frases.sort(key=lambda f: (round(f[2] / 10), f[1]))
     return [Elemento(n=i + 1, texto=t, x=x, y=y, w=w, h=h) for i, (t, x, y, w, h) in enumerate(frases)]
@@ -349,6 +448,19 @@ def ubicar_texto_en_zona(
     return None
 
 
+def ubicar_boton(
+    imagen: np.ndarray, texto: str, x: int, y: int, lang: str
+) -> tuple[int, int, int, int] | None:
+    """Como `ubicar_texto_en_zona`, pero si no lo halla y (x, y) caben en una cuadrícula de 0-1000
+    se prueba de nuevo leyéndolas como coordenadas normalizadas (algunos modelos de visión
+    responden así aunque se les pida píxeles; medido: el modal de novedades)."""
+    caja = ubicar_texto_en_zona(imagen, texto, x, y, lang)
+    if caja is None and 0 < x <= 1000 and 0 < y <= 1000:
+        alto, ancho = imagen.shape[:2]
+        caja = ubicar_texto_en_zona(imagen, texto, round(x * ancho / 1000), round(y * alto / 1000), lang)
+    return caja
+
+
 async def mirar(
     vnc: Vnc, cfg: Config, antes: np.ndarray | None = None, exigir_cambio: bool = False
 ) -> Vista:
@@ -356,7 +468,7 @@ async def mirar(
     imagen, quieta, cambio, espera = await capturar_quieta(vnc, cfg, antes, exigir_cambio)
     t0 = time.perf_counter()
     elementos = await asyncio.to_thread(
-        leer_textos, imagen, cfg.ocr_lang, cfg.ocr_scale, cfg.ocr_botones)
+        leer_textos, imagen, cfg.ocr_lang, cfg.ocr_scale, cfg.ocr_botones, cfg.ocr_botones_neutros)
     return Vista(imagen=imagen, elementos=elementos, quieta=quieta, cambio=cambio,
                  espera_s=espera, ocr_s=time.perf_counter() - t0)
 

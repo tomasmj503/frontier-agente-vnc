@@ -197,6 +197,8 @@ class Vnc:
         await self._enviar(struct.pack(">BxxxBBBBHHHBBBxxx", 0, 32, 24, 0, 1, 255, 255, 255, 16, 8, 0))
         # SetEncodings: solo Raw (0)
         await self._enviar(struct.pack(">BxHi", 2, 1, 0))
+        if self._cfg.park_mouse:
+            await self.estacionar()
 
     async def _leer_actualizacion(self) -> None:
         while True:
@@ -257,6 +259,13 @@ class Vnc:
             await asyncio.sleep(self._cfg.click_hold_ms / 1000)
         finally:  # aunque la tarea se cancele a medias, el botón se suelta
             await self._puntero(0, x, y)
+        if self._cfg.park_mouse:
+            await asyncio.sleep(0.05)
+            await self.estacionar()
+
+    async def estacionar(self) -> None:
+        """Lleva el cursor a una esquina: si se queda sobre el botón pulsado, tapa sus letras."""
+        await self._puntero(0, self.ancho - 3, self.alto - 3)
 
     async def scroll(self, x: int, y: int, direccion: str, pasos: int = 3) -> None:
         """Rueda del mouse sobre (x, y): botón 4 = arriba, botón 5 = abajo."""

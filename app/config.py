@@ -91,7 +91,9 @@ class Config:
     # Lectura de texto
     ocr_lang: str
     ocr_scale: float  # ampliación de la captura antes de leer (medido: 2 lee mejor que 1)
-    ocr_botones: bool  # leer por separado los botones azules (texto blanco sobre fondo oscuro)
+    ocr_botones: bool  # leer por separado los botones de color (texto blanco sobre fondo oscuro)
+    ocr_botones_neutros: bool  # ...y los botones grises con borde (Siguiente, Limpiar, Cerrar)
+    park_mouse: bool  # alejar el mouse tras cada clic: el cursor tapa letras del botón pulsado
 
     # Bitácora
     logs_dir: Path
@@ -126,5 +128,7 @@ class Config:
             ocr_lang=_texto("OCR_LANG", "spa"),
             ocr_scale=_numero("OCR_SCALE", 2),
             ocr_botones=_booleano("OCR_BOTONES", True),
+            ocr_botones_neutros=_booleano("OCR_BOTONES_NEUTROS", True),
+            park_mouse=_booleano("PARK_MOUSE", True),
             logs_dir=RAIZ / _texto("LOGS_DIR", "logs"),
         )
