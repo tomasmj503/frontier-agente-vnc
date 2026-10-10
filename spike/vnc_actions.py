@@ -22,7 +22,7 @@ from vnc_test import RFB, ROOT, SPIKE, http, http_base, load_env
 
 KEYSYMS = {
     "ctrl": 0xFFE3, "shift": 0xFFE1, "alt": 0xFFE9, "enter": 0xFF0D, "tab": 0xFF09,
-    "esc": 0xFF1B, "backspace": 0xFF08, "delete": 0xFFFF,
+    "esc": 0xFF1B, "backspace": 0xFF08, "delete": 0xFFFF, "f12": 0xFFC9,
 }
 
 
