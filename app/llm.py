@@ -216,17 +216,20 @@ class Llm:
     async def _llamar(self, mensajes: list[dict]):
         ultimo: Exception | None = None
         for intento in range(2):
+            extra: dict = {"usage": {"include": True}}
+            if self.cfg.llm_reasoning_effort:
+                extra["reasoning"] = {"effort": self.cfg.llm_reasoning_effort}
             try:
                 return await self.cliente.chat.completions.create(
                     model=self.cfg.llm_model,
                     messages=mensajes,
                     temperature=0,
-                    max_tokens=600,
+                    max_tokens=self.cfg.llm_max_tokens,
                     response_format={
                         "type": "json_schema",
                         "json_schema": {"name": "decision", "strict": True, "schema": _esquema()},
                     },
-                    extra_body={"usage": {"include": True}},
+                    extra_body=extra,
                 )
             except _REINTENTABLES as e:  # solo errores transitorios; los demás se propagan
                 ultimo = e

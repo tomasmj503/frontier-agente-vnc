@@ -60,6 +60,8 @@ class Config:
     llm_model: str
     llm_send_image: bool
     llm_timeout_s: float
+    llm_max_tokens: int           # tope de palabras de salida (incluye lo que el modelo "piensa")
+    llm_reasoning_effort: str     # "low" | "medium" | "high"; vacío = no se envía
 
     # Topes por tarea
     task_max_seconds: float
@@ -103,6 +105,8 @@ class Config:
             llm_model=_texto("LLM_MODEL", "google/gemini-3.8-flash"),
             llm_send_image=_booleano("LLM_SEND_IMAGE", True),
             llm_timeout_s=_numero("LLM_TIMEOUT_S", 60),
+            llm_max_tokens=int(_numero("LLM_MAX_TOKENS", 2000)),
+            llm_reasoning_effort=_texto("LLM_REASONING_EFFORT", "low"),
             task_max_seconds=_numero("TASK_MAX_SECONDS", 270),
             task_max_cost_usd=_numero("TASK_MAX_COST_USD", 0.15),
             task_max_steps=int(_numero("TASK_MAX_STEPS", 40)),
