@@ -22,6 +22,8 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 7 | `2bc0e1a` (nota) | | | pasó 100 s, 10 pasos, US$0.063 · pasó 100 s, 10 pasos, US$0.053 · **falló** 133 s: respondió 44, era 45 | | pasó 52 s, 6 pasos, US$0.024 |
 | 8 | `2bc0e1a` (control) | pasó 109 s, 13 pasos, US$0.048 | pasó 85 s, 9 pasos, US$0.034 | | pasó 82 s, 10 pasos, US$0.045 | |
 
+| 9 | `fd239c9` (**tras el aviso del incidente**) | pasó 97 s, 13 pasos, US$0.047 | pasó 67 s, 9 pasos, US$0.034 | pasó 112 s, 11 pasos, US$0.074 | pasó 82 s, 11 pasos, US$0.050 | pasó 42 s, 6 pasos, US$0.024 |
+
 Publicado en `frontier.jutilabs.com` (servidor con versiones anteriores a las del repo):
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
@@ -155,9 +157,72 @@ E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego d
 
 ---
 
+## Incidente de las 15:30 — el tema de la app cambió (paso 1: DETECTAR, sin tocar código)
+
+**Lo que se nos dijo:** la app de pruebas cambió de tema: botones movidos, etiquetas distintas y un
+modal nuevo al abrir la app. La evaluación oculta corre sobre el tema nuevo.
+
+**Cómo lo buscamos (todo de solo lectura, sin cambiar código):**
+1. Reset del escritorio + captura + lectura de textos (a las 15:38 y otra vez a las 15:46).
+2. E1–E5 completos con el código tal como estaba (`fd239c9`).
+3. Comparación pantalla a pantalla entre esta mañana y ahora: textos de la primera pantalla de cada caso,
+   píxeles del formulario "Nuevo cliente", y **posición de cada etiqueta** en Clientes, Facturas, Pedidos
+   y barra de menú.
+4. Abrir cada menú de la barra (Archivo, Comercial, Cartera, Herramientas, Ayuda) en busca de modales.
+
+**Qué se midió (todo medido):**
+- **E1–E5: 5 de 5 pasaron** (tabla, corrida 9). Costo total US$0.23; 7.1–10.2 s por paso.
+- **Modal:** no aparece. Ni tras el reset, ni 6 s después, ni al abrir los 5 menús.
+- **Etiquetas movidas:** **0 de 24** comparadas (menú 5, Clientes 7, Facturas 6, Pedidos 6) están a más de 6 px de donde estaban.
+- **Formulario "Nuevo cliente":** 0.01 % de píxeles distintos (solo el cursor del mouse).
+- **Pantalla de inicio:** 0.15 % de píxeles distintos. La única diferencia es el título de la página: dice
+  el nombre del último módulo visitado ("Pedidos" a las 15:38, "Clientes" a las 15:46). Esa pantalla ya se
+  veía así en las corridas de esta mañana (aparece en la bitácora de la primera corrida), así que
+  **no** es parte del cambio de tema.
+- Encabezado igual: "SIGECOM · Distribuidora Andina v3.9", mismo usuario y fecha.
+
+**Conclusión honesta:** en el escritorio de práctica (`DESKTOP_URL` de mi `.env`) **no se ve ningún cambio de
+tema**. No puedo confirmar el modal ni decir qué dice, porque no lo he visto. Lo que sí sé es que el código
+actual pasa los 5 casos sobre lo que tengo delante. Posibles explicaciones, **sin verificar**:
+- El tema nuevo solo existe en los escritorios de evaluación, no en el de práctica.
+- El escritorio de práctica cambia más tarde (después de las 15:30–16:00).
+- Existe un escritorio nuevo (otra URL/contraseña en la tarjeta de `/evento`) y mi `.env` apunta al viejo.
+
+**Qué falló:** nada en las corridas. El riesgo no está en lo que falló sino en lo que no podemos ver.
+
+**Qué partes del código dependen del tema (de la lectura del código, no de una corrida):**
+
+| Dónde | Qué asume | Qué pasa si el tema cambia |
+|---|---|---|
+| `app/screen.py:250` | Botones primarios = fondo oscuro con más azul que rojo (texto blanco) | Un botón verde, rojo o con texto oscuro sobre claro **no** se detecta y queda sin leer |
+| `app/screen.py:235` | Un botón mide 28–260 px de ancho y 20–60 de alto, y está relleno más del 45 % | Botones más altos, más bajos o muy anchos se descartan |
+| `app/screen.py:307-319` | Cara del botón = uno de los 12 colores más frecuentes de la zona, tolerancia ±14, 120 px mínimo | Botones con degradado fuerte, sombra o borde grueso pueden no separarse |
+| `app/screen.py:29,119,26-27` | Máx. 12 botones leídos; bordes `\|[]{}()`; hueco entre palabras 1.2 alturas; confianza 30 | Otra fuente o tamaño cambia cómo se agrupan y se leen los textos |
+| `.env` `OCR_SCALE=2` | Ampliar 2x lee mejor (medido con esta fuente) | Otra tipografía podría leerse mejor a 3x |
+| `.env` `FIELD_OFFSET_Y=18`, `X=25` | El campo está ~18 px **debajo** de su etiqueta (o 25 px a la derecha) | Con etiquetas a la izquierda o más espacio, el clic cae fuera del campo |
+| `app/screen.py:22-24`, `.env` `SCREEN_STABLE_DIFF=0.01` | Un cambio real mueve más de 20 píxeles con diferencia > 24 | Un tema de bajo contraste puede parecer "sin cambio" |
+| `app/llm.py:70-71,122,137` | Pantalla de 1280×800 fija | Otra resolución rechaza `clic_zona` |
+| `app/llm.py` (instrucciones) | Palabras de la app de práctica: "Volver", "Guardar", "Buscar", "Siguiente", "Dato inválido", cartel de F12 con "OK", flecha ▼ | Con etiquetas distintas ("Cancelar", "Aceptar", "Next") la IA recibe instrucciones con palabras que no existen |
+| `app/supervisor.py:14` | `Ctrl+L`, `F12` y `Esc` están bloqueadas | En un tema/kiosco distinto esas teclas podrían servir (o no) |
+| `app/supervisor.py:16-27` | Palabras de error, de paginación ("Página K", "Siguiente") y de totales ("N registros") | Etiquetas distintas no se reconocen: la regla anti falso éxito no se activa |
+| `.env` `CLICK_HOLD_MS=150` | La app ignora clics de menos de 100 ms | Otra app podría necesitar más tiempo |
+| **Modales** | No hay ninguna regla específica; depende de que la IA lo vea en la captura y lo cierre | Un modal que tapa la app al abrir puede consumir pasos o confundir la lista de textos |
+
+**Lo que NO depende del tema:** el cliente VNC y su autenticación, el ciclo mirar-decidir-actuar, los
+topes de tiempo y de gasto, el filtro de secretos, la bitácora, las notas y la regla de conteos
+(salvo por las palabras de la fila "supervisor").
+
+**Qué se puede ajustar sin tocar código (en `.env`):** `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_SEND_IMAGE`,
+`OCR_SCALE`, `OCR_BOTONES`, `FIELD_OFFSET_X/Y`, `CLICK_HOLD_MS`, `SCREEN_*`, `TASK_MAX_SECONDS`.
+
+**Estado:** detección terminada; **no se cambió código**. Se esperan decisiones (ver el mensaje de propuestas).
+
+---
+
 ## Riesgos y pendientes conocidos
 - `ReadTimeout` contra el publicado: sin causa establecida (cambio 13).
 - La IA es lo más lento (5 s por llamada o más). Secuencias de varias acciones por decisión quedan **para después del imprevisto**.
 - E3 acierta 2 de 3 veces: la IA a veces se salta una fila al contar una página de 20 (cambio 18).
+- **Incidente de las 15:30:** no he podido ver el tema nuevo ni el modal en el escritorio de práctica; el código actual pasa E1–E5 sobre lo que veo. Hay que conseguir el escritorio con el tema nuevo (ver la sección del incidente).
 - Lo publicado en el servidor está **detrás** del repo: falta `git pull && ./deploy.sh` cuando decidas publicar.
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
