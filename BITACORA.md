@@ -34,6 +34,7 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 17 | regla anti-ciclo, repeticiones | | | pasó 92 s · pasó 96 s · pasó 99 s (45 las tres) | pasó 104 s | |
 | 18 | reconexión VNC + "única página", los 5 casos | pasó 130 s, 15 pasos, US$0.065 | pasó 88 s, 10 pasos, US$0.045 | **falló** 91 s: respondió 44 | pasó 115 s, 12 pasos, US$0.074 | pasó 54 s, 7 pasos, US$0.030 |
 | 19 | corte REAL de la conexión a mitad de tarea (E5) | | | | | pasó 103 s (`fallida` correcta, con los dos documentos) |
+| 20 | regla de listas desplegables (solo prompt) | pasó 100 s, 13 pasos, US$0.058 | | pasó 100 s, 11 pasos, US$0.064 | pasó 106 s, 11 pasos, US$0.055 | |
 Publicado en `frontier.jutilabs.com`: **el servidor ya corre `ec96230`** (lo confirmaste después de la corrida 19). Las corridas publicadas de abajo que medí yo son **anteriores** a esa publicación; con `ec96230` no he medido nada contra el servidor:
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
@@ -496,6 +497,34 @@ en las bitácoras (con captura):
   botones en paralelo.
 - **Ojo en local:** si alguien copia `.env.example` a `.env` en la Mac, cada Tesseract usará un solo hilo y
   la lectura local podría ser algo más lenta (no medido).
+
+### 10) Listas desplegables: regla en las instrucciones (hallazgo del set oculto) — solo el prompt
+- **Qué falló (dato que me pasaste; no he visto ese log):** en la app de la clínica, al cancelar una cita hay
+  una lista «Motivo» que muestra «(seleccione)». La IA hizo `clic_zona «(seleccione)»` 6 veces sin
+  encontrarla y llegó al tope (`logs/ff115dff83ae` del servidor). En otro caso sí funcionó: `escribir`
+  «Efectivo» en el campo de «Medio» usando el número de la etiqueta.
+- **Por qué:** «(seleccione)» es el *valor actual* de la lista, no un botón; `clic_zona` busca botones y no lo
+  encuentra. Las instrucciones decían "para listas llega con Tab y escribe", pero no decían qué hacer cuando
+  el campo no está enfocado ni que ese valor no es un botón.
+- **Qué se cambió (solo `llm.py`, instrucciones):** sección nueva **LISTAS DESPLEGABLES**:
+  1. elegir con `escribir`: `en` = número de la **etiqueta** del campo, `campo` = lista, `texto` = la opción;
+  2. luego `tecla` Enter;
+  3. **verificar** en la pantalla siguiente que el valor cambió;
+  4. si no se conocen las opciones, hacer `clic` en la caja para verlas;
+  5. no buscar «(seleccione)», «Todos»… con `clic_zona` (también se dice en la descripción de `clic_zona`).
+  Una prueba nueva fija estas frases; en total pasan 93.
+- **Medido en local (escritorio de práctica):**
+  - **E3 (usa el filtro de estado): pasó**, 100 s, 11 pasos, US$0.064, respuesta 45. Eligió el estado con
+    `escribir en=«Estado» campo=lista 'Vencida'`, luego Enter, luego Filtrar (exactamente la regla).
+  - **E1 (lista «Ciudad») pasó** (100 s, 13 pasos) y **E4 (lista «Estado») pasó** (106 s, 11 pasos).
+    Los corrí aunque no los pediste porque el cambio afecta a todo formulario con listas.
+- **Matices honestos:**
+  - En E1 y E4 la IA usó `escribir` con el número de la etiqueta **pero no pulsó Enter** (y funcionó); solo en
+    E3 lo pulsó. La regla lo pide, no lo garantiza.
+  - Es **1 corrida** por caso, y la lista «Motivo» de la clínica **no se reprodujo**: no tengo esa app en local.
+    No se probó el caso exacto del hallazgo.
+  - No se corrieron E2 ni E5 (no usan listas).
+- **Pendiente:** volver a mirar el set oculto con una versión publicada que traiga esta regla (no se publicó).
 
 ---
 
