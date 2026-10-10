@@ -113,7 +113,7 @@ def test_el_resumen_final_no_lleva_la_clave(entorno):
 
 def test_clic_zona_hace_clic_en_el_centro_del_boton_encontrado(entorno, monkeypatch):
     cfg, vnc, tmp = entorno
-    monkeypatch.setattr(agente, "ubicar_texto_en_zona", lambda img, texto, x, y, lang: (100, 200, 80, 24))
+    monkeypatch.setattr(agente, "ubicar_boton", lambda img, texto, x, y, lang: (100, 200, 80, 24))
     guion = [
         _respuesta(accion="clic_zona", texto="Siguiente", zona_x=210, zona_y=690),
         _respuesta(accion="terminar", estado="terminada", resumen="Listo."),
@@ -125,7 +125,7 @@ def test_clic_zona_hace_clic_en_el_centro_del_boton_encontrado(entorno, monkeypa
 
 def test_clic_zona_sin_boton_no_toca_nada_y_la_ia_corrige(entorno, monkeypatch):
     cfg, vnc, tmp = entorno
-    monkeypatch.setattr(agente, "ubicar_texto_en_zona", lambda img, texto, x, y, lang: None)
+    monkeypatch.setattr(agente, "ubicar_boton", lambda img, texto, x, y, lang: None)
     guion = [
         _respuesta(accion="clic_zona", texto="Siguiente", zona_x=210, zona_y=690),
         _respuesta(accion="terminar", estado="fallida", resumen="No pude paginar."),
