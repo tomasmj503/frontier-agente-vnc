@@ -166,3 +166,9 @@ def test_las_notas_de_la_ia_vuelven_en_los_pasos_siguientes(entorno):
     assert "TUS NOTAS" not in vistos[0]
     assert "Página 1: 16 exactas" in vistos[1] and "Página 2" not in vistos[1]
     assert "Página 1: 16 exactas" in vistos[2] and "Página 2: 15 exactas" in vistos[2]
+
+
+def test_las_instrucciones_piden_copiar_los_identificadores_de_cada_fila_al_contar():
+    from app.llm import MAX_NOTA, SISTEMA
+    assert "identificador de CADA fila" in SISTEMA and "SOLO la página" in SISTEMA
+    assert MAX_NOTA >= 600  # caben los códigos de una página completa

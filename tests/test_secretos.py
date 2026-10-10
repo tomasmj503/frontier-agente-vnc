@@ -105,8 +105,9 @@ def test_una_razon_muy_larga_se_recorta_en_vez_de_rechazarse():
 
 
 def test_una_nota_larga_se_recorta_y_el_mensaje_a_la_ia_no_lleva_la_clave(monkeypatch):
+    from app.llm import MAX_NOTA
     d = Decision.model_validate({"razon": "r", "nota": "n " * 600, "accion": "tecla", "tecla": "tab"})
-    assert len(d.nota) <= 400
+    assert len(d.nota) <= MAX_NOTA
     monkeypatch.setenv("TEAM_TOKEN", "t-prueba-123")
     llm = Llm(Config.desde_entorno(), secretos=[CLAVE], cliente=object())
     msg = llm.mensaje_paso("orden", [], "1 | x=1 y=1 | a", [], [f"apunte con {CLAVE}", "Página 1: 16"])
