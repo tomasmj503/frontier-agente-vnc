@@ -32,6 +32,8 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 15 | opción A, los 5 casos | pasó 127 s, 16 pasos, US$0.067 | pasó 85 s, 10 pasos, US$0.043 | pasó 100 s, 11 pasos, US$0.060 | pasó 97 s, 11 pasos, US$0.054 | pasó 55 s, 7 pasos, US$0.029 |
 | 16 | regla anti-ciclo, los 5 casos | pasó 130 s, 15 pasos | pasó 100 s, 10 pasos | **falló** 106 s: respondió 16 ("única página") | **falló** 52 s: `ConnectionClosedError` | pasó 61 s, 7 pasos |
 | 17 | regla anti-ciclo, repeticiones | | | pasó 92 s · pasó 96 s · pasó 99 s (45 las tres) | pasó 104 s | |
+| 18 | reconexión VNC + "única página", los 5 casos | pasó 130 s, 15 pasos, US$0.065 | pasó 88 s, 10 pasos, US$0.045 | **falló** 91 s: respondió 44 | pasó 115 s, 12 pasos, US$0.074 | pasó 54 s, 7 pasos, US$0.030 |
+| 19 | corte REAL de la conexión a mitad de tarea (E5) | | | | | pasó 103 s (`fallida` correcta, con los dos documentos) |
 Publicado en `frontier.jutilabs.com` (servidor con versiones anteriores a las del repo):
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
@@ -427,6 +429,49 @@ en las bitácoras (con captura):
   - *Abierto, a tu decisión:* (1) pedir que antes de afirmar "única página" se **pruebe** pulsar "Siguiente"
     y se compruebe que no cambia la pantalla; (2) reconectar el VNC una vez si se corta durante la tarea.
 
+### 8) Reconexión del VNC y "única página" comprobada — solo local, sin publicar
+**a) Reconectar el VNC una vez si se corta durante la tarea** (`vnc.py`, `agent.py`, `config.py`)
+- *Qué falló:* en una corrida de 5 casos, E4 terminó con `ConnectionClosedError`: la conexión se cortó a
+  mitad de la tarea y solo había un reintento al conectar, no durante el trabajo.
+- *Qué se cambió:*
+  - Las **lecturas** (captura de pantalla) que fallan por un corte se vuelven a pedir con una conexión nueva.
+  - Las **acciones** (clic, teclas, escribir, scroll) que se cortan **no se repiten**: se reconecta, se lanza
+    `ConexionRestablecida`, el agente **vuelve a mirar la pantalla** y la IA recibe un aviso ("pudo haberse
+    ejecutado, quedado a medias o no haberse hecho; revisa la pantalla; no la repitas a ciegas").
+  - Una sola reconexión por tarea (`VNC_RECONNECTS`). Si el corte se repite o no se recupera, la tarea
+    termina `fallida` explicando que se perdió la conexión (antes salía "Error interno").
+  - Una conexión **colgada** (sin datos durante `VNC_READ_TIMEOUT_S`, 20 s) cuenta como corte.
+- *Medido:*
+  - **Prueba con un servidor RFB de mentira que aborta el socket de verdad:** (1) corte al capturar →
+    reconecta y entrega la imagen; (2) corte durante un clic → `ConexionRestablecida`, y el servidor **no
+    recibió** el clic en la conexión nueva; (3) un segundo corte → error claro, sin colgarse.
+  - **Corte real contra el escritorio de práctica** (E5, socket abortado a los 28 s): abrió una 2.ª conexión,
+    el paso interrumpido quedó registrado como "se cortó la conexión y se restableció (no se repitió)", el
+    agente volvió a mirar y terminó bien (`fallida` correcta con CL-0005 y CL-0031), 103 s.
+- *Detalle encontrado y corregido:* la acción cortada contaba para la regla "misma acción tres veces" y
+  provocó un rechazo injusto tras reconectar. Ahora no cuenta (1 prueba nueva).
+- *Límite:* tras reconectar se pierde la posición del mouse; un submenú que depende de que el mouse siga encima
+  (hover) puede cerrarse y la IA tendrá que volver a abrirlo (así pasó en la prueba real).
+
+**b) "Única página" solo si se comprobó** (`supervisor.py`)
+- *Qué falló:* E3 respondió 16 afirmando "única página" con el botón «Siguiente» a la vista (la frase de
+  escape de la regla de conteos bastaba para dar el conteo por bueno).
+- *Qué se cambió:* con un botón «Siguiente» visible, la frase "única página" solo se acepta si la IA **pulsó
+  «Siguiente» y la pantalla no cambió** (textos ≥ 90 % iguales). Sin comprobarlo se rechaza con el motivo y,
+  tras 2 avisos, la tarea pasa a `fallida` sin entregar el número. Si no hay «Siguiente» visible, se acepta
+  la frase como antes.
+- *Medido:* 5 pruebas nuevas (rechazo sin probar; aceptación con Siguiente probado y sin cambio; si la
+  página cambia no se da por comprobada; sin botón visible se acepta; tras 2 avisos pasa a `fallida`).
+- *No se vio actuar en una corrida real:* en los 5 casos la regla no tuvo que intervenir.
+
+**Los 5 casos, 1 vez (corrida 18): 4 de 5.**
+- Hubo **0 rechazos del supervisor y 0 cortes de conexión** en las cinco tareas: ninguna de las dos reglas
+  nuevas intervino, así que no hay cambio que revertir.
+- **E3 respondió 44 (era 45):** esta vez la IA filtró solo por cliente y contó a ojo las vencidas en 4
+  páginas (12 + 12 + 15 + 5) en vez de filtrar también por estado. Es variación del modelo; con el código
+  anterior E3 había dado 45 en 3 de 3 repeticiones y 16 una vez. Sigue siendo el caso más inestable.
+- Totales de esta corrida: US$0.266; 7.8–10.1 s por paso.
+
 ---
 
 ## Riesgos y pendientes conocidos
@@ -434,8 +479,7 @@ en las bitácoras (con captura):
 - La IA es lo más lento (5 s por llamada o más). Secuencias de varias acciones por decisión quedan **para después del imprevisto**.
 - E3 acierta 2 de 3 veces: la IA a veces se salta una fila al contar una página de 20 (cambio 18).
 - **E3 (conteo de filas):** con la opción A acertó 4 de 4 (antes ~la mitad). Pocas muestras; si en la evaluación falla, el síntoma sería un conteo off-by-uno.
-- **Frase de escape "única página":** la IA puede afirmarlo sin comprobarlo (1 caso en 8 corridas de E3).
-- **Conexión VNC cortada a mitad de tarea:** hoy la tarea termina `fallida` (1 caso).
+- **E3:** sigue siendo el caso más inestable (45 en 7 de 9 corridas recientes; falló con 16 y con 44). El método elegido por la IA (filtrar por estado o contar a ojo) cambia de una corrida a otra.
 - **Tema nuevo en servidor:** lo publicado está detrás del repo; falta `git pull && ./deploy.sh`.
 - Lo publicado en el servidor está **detrás** del repo: falta `git pull && ./deploy.sh` cuando decidas publicar.
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
