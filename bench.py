@@ -140,7 +140,17 @@ def correr_caso(caso: dict, base: str, tope_s: float, secretos: list[str]) -> di
             fila["problemas"].append(f"sigue en_curso a los {int(tope_s)} s")
 
         paso = "POST /__check"
-        chk = httpx.post(f"{esc}/__check", headers=desk, json=caso, timeout=30)
+        chk = None
+        for intento in range(3):  # el escritorio a veces corta la conexión: se reintenta
+            try:
+                chk = httpx.post(f"{esc}/__check", headers=desk, json=caso, timeout=30)
+                break
+            except httpx.HTTPError as e:
+                fila.setdefault("avisos", []).append(f"/__check intento {intento + 1}: {type(e).__name__}")
+                time.sleep(2)
+        if chk is None:
+            fila["problemas"].append("/__check no respondió en 3 intentos")
+            return fila
         fila["check"] = chk.json() if chk.status_code == 200 else {"pass": False, "checks": []}
         if not fila["check"].get("pass"):
             malos = [c["nombre"] for c in fila["check"].get("checks", []) if not c.get("ok")]
@@ -153,7 +163,10 @@ def correr_caso(caso: dict, base: str, tope_s: float, secretos: list[str]) -> di
         paso = "GET /tasks/{id}/detalle"
         d = httpx.get(f"{base}/tasks/{task_id}/detalle", headers=team, timeout=15)
         if d.status_code == 200:
-            fila["costo"], fila["pasos"] = d.json().get("costo_usd"), d.json().get("pasos")
+            det = d.json()
+            fila["costo"], fila["pasos"] = det.get("costo_usd"), det.get("pasos")
+            fila["tiempos"] = {k: det.get(k) for k in
+                               ("seg_espera_pantalla", "seg_leer_textos", "seg_ia", "seg_acciones")}
     except httpx.HTTPError as e:
         fila["problemas"].append(f"error de red en «{paso}»: {type(e).__name__}")
     return fila
@@ -210,6 +223,19 @@ def main() -> None:
               f"{f['segundos']:>5.0f} s   {costo:>9}   {pasos}")
     ok = sum(1 for f in filas if not f["problemas"])
     total = sum(f["costo"] or 0 for f in filas)
+    if any(f.get("tiempos") and f["tiempos"].get("seg_ia") is not None for f in filas):
+        print("\n  Dónde se va el tiempo (segundos, por caso)")
+        print("  caso   total   pantalla   textos     IA    acciones   otros   s/paso")
+        for f in filas:
+            t = f.get("tiempos")
+            if not t or t.get("seg_ia") is None:
+                continue
+            suma = sum(t.values())
+            otros = f["segundos"] - suma
+            por_paso = f["segundos"] / f["pasos"] if f["pasos"] else 0
+            print(f"  {f['id']:<6} {f['segundos']:>5.0f}   {t['seg_espera_pantalla']:>7.0f}   "
+                  f"{t['seg_leer_textos']:>6.0f}   {t['seg_ia']:>5.0f}   {t['seg_acciones']:>7.0f}   "
+                  f"{otros:>5.0f}   {por_paso:>6.1f}")
     print(f"\n  {ok}/{len(filas)} pasaron · costo total US${total:.4f} · modelo {modelo}")
     for f in filas:
         if f["problemas"]:

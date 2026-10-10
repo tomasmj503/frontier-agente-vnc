@@ -184,17 +184,13 @@ def _contenida(f: tuple[str, int, int, int, int], caja: tuple[int, int, int, int
     return x - 2 <= cx <= x + w + 2 and y - 2 <= cy <= y + h + 2
 
 
-def _rectangulos_oscuros(imagen: np.ndarray) -> list[tuple[int, int, int, int]]:
-    """Cajas (x, y, w, h) de los bloques de fondo azul oscuro del tamaño de un botón.
+def _componentes(mascara: np.ndarray) -> list[tuple[int, int, int, int]]:
+    """Cajas (x, y, w, h) de las manchas de la máscara con tamaño de botón.
 
-    Se busca por color (fondo oscuro con más azul que rojo) y se unen las franjas de píxeles
-    que se tocan de una fila a la siguiente. Se descartan cabeceras (muy anchas) y manchas.
+    Une las franjas de píxeles que se tocan de una fila a la siguiente. Se descartan las
+    cabeceras y paneles (muy anchos) y las líneas de texto resaltadas (muy bajas).
     """
-    r = imagen[:, :, 0].astype(np.int16)
-    g = imagen[:, :, 1].astype(np.int16)
-    b = imagen[:, :, 2].astype(np.int16)
-    mascara = ((r + g + b) < 3 * 150) & (b - r > 25)
-    alto, ancho = mascara.shape
+    alto = mascara.shape[0]
     padre: list[int] = []
 
     def raiz(i: int) -> int:
@@ -232,7 +228,21 @@ def _rectangulos_oscuros(imagen: np.ndarray) -> list[tuple[int, int, int, int]]:
         w, h = x1 - x0, y1 - y0
         if 28 <= w <= 260 and 20 <= h <= 60 and pix / (w * h) > 0.45:
             salida.append((x0, y0, w, h))
-    return sorted(salida, key=lambda c: (c[1], c[0]))[:MAX_BOTONES]
+    return salida
+
+
+def _rectangulos_oscuros(imagen: np.ndarray) -> list[tuple[int, int, int, int]]:
+    """Cajas (x, y, w, h) de los botones de fondo azul oscuro (texto blanco).
+
+    Se busca por color: fondo oscuro con más azul que rojo. Los botones grises con borde
+    (Siguiente, Limpiar) NO se detectan aquí: se probó un detector por color gris claro y
+    empeoraba la lectura al confundirse con las franjas de las tablas (medido).
+    """
+    r = imagen[:, :, 0].astype(np.int16)
+    g = imagen[:, :, 1].astype(np.int16)
+    b = imagen[:, :, 2].astype(np.int16)
+    azul = ((r + g + b) < 3 * 150) & (b - r > 25)
+    return sorted(_componentes(azul), key=lambda c: (c[1], c[0]))[:MAX_BOTONES]
 
 
 def _leer_boton(imagen: np.ndarray, caja: tuple[int, int, int, int], lang: str) -> str:
