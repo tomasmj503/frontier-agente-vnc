@@ -18,6 +18,7 @@ from app.supervisor import Supervisor
 from app.vnc import ErrorVnc, Vnc
 
 MAX_RECHAZOS_SEGUIDOS = 4
+MAX_FORMATO_SEGUIDOS = 3
 MAX_SIN_CAMBIO_SEGUIDOS = 5
 MAX_RESUMEN = 1500
 
@@ -74,6 +75,7 @@ class Agente:
             avisos: list[str] = []
             rechazos = 0
             sin_cambio = 0
+            formato_malo = 0
             while True:
                 if progreso.pasos >= self.cfg.task_max_steps:
                     return self._fallo(
@@ -96,7 +98,18 @@ class Agente:
                 except ErrorLlm as e:
                     progreso.seg_ia += time.perf_counter() - t_ia
                     progreso.costo_usd += e.costo_usd
+                    if e.formato:  # respondió mal: se le pide de nuevo, sin tocar la pantalla
+                        formato_malo += 1
+                        progreso.historial.append(f"{n}. (la IA respondió con formato inválido)")
+                        if formato_malo >= MAX_FORMATO_SEGUIDOS:
+                            return self._fallo(
+                                progreso, f"La IA no logró responder en el formato pedido: {e}")
+                        avisos.append("Tu respuesta anterior no cumplió el formato. Responde un objeto "
+                                      "válido: un clic lleva 'numero' (de la lista actual), escribir "
+                                      "lleva 'texto'.")
+                        continue
                     return self._fallo(progreso, f"La IA no pudo decidir: {e}")
+                formato_malo = 0
                 ia_s = time.perf_counter() - t_ia
                 progreso.seg_ia += ia_s
                 progreso.costo_usd += r.costo_usd

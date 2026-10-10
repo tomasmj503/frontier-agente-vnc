@@ -169,9 +169,10 @@ class RespuestaLlm:
 
 
 class ErrorLlm(RuntimeError):
-    def __init__(self, mensaje: str, costo_usd: float = 0.0):
+    def __init__(self, mensaje: str, costo_usd: float = 0.0, formato: bool = False):
         super().__init__(mensaje)
         self.costo_usd = costo_usd  # lo gastado antes de fallar, para que la tarea lo cuente
+        self.formato = formato      # True: la IA respondió, pero no con el formato pedido
 
 
 _REINTENTABLES = (APIConnectionError, RateLimitError, InternalServerError)
@@ -285,4 +286,4 @@ class Llm:
             self.gastado_usd += costo
             return RespuestaLlm(decision, costo, conocido, t_in, t_out, self.cfg.llm_model)
         self.gastado_usd += costo
-        raise ErrorLlm(f"la IA no devolvió el formato pedido: {error_formato}", costo)
+        raise ErrorLlm(f"la IA no devolvió el formato pedido: {error_formato}", costo, formato=True)
