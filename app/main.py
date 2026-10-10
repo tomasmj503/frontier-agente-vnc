@@ -58,6 +58,10 @@ def crear_app(config: Config | None = None, gestor: Gestor | None = None) -> Fas
             "estado": t.estado, "segundos": round(t.segundos, 1),
             "costo_usd": round(t.progreso.costo_usd, 6), "pasos": t.progreso.pasos,
             "llamadas_ia": t.progreso.llamadas_ia,
+            "seg_espera_pantalla": round(t.progreso.seg_espera, 1),
+            "seg_leer_textos": round(t.progreso.seg_ocr, 1),
+            "seg_ia": round(t.progreso.seg_ia, 1),
+            "seg_acciones": round(t.progreso.seg_accion, 1),
         }
 
     return app

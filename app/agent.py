@@ -30,6 +30,12 @@ class Progreso:
     pasos: int = 0
     llamadas_ia: int = 0
     inicio: float = field(default_factory=time.perf_counter)
+    # Dónde se va el tiempo (segundos): esperar a que la pantalla quede quieta, leer textos,
+    # esperar a la IA y ejecutar la acción (clics y teclas).
+    seg_espera: float = 0.0
+    seg_ocr: float = 0.0
+    seg_ia: float = 0.0
+    seg_accion: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -63,6 +69,8 @@ class Agente:
 
         async with vnc:
             vista = await mirar(vnc, self.cfg)
+            progreso.seg_espera += vista.espera_s
+            progreso.seg_ocr += vista.ocr_s
             avisos: list[str] = []
             rechazos = 0
             sin_cambio = 0
@@ -82,11 +90,15 @@ class Agente:
                         "La pantalla seguía cambiando cuando la leí; puede estar a medio cargar.")
                 msg = llm.mensaje_paso(tarea, progreso.historial, self._lista(vista), avisos_paso)
 
+                t_ia = time.perf_counter()
                 try:
                     r = await self.decidir(llm, msg, vista)
                 except ErrorLlm as e:
+                    progreso.seg_ia += time.perf_counter() - t_ia
                     progreso.costo_usd += e.costo_usd
                     return self._fallo(progreso, f"La IA no pudo decidir: {e}")
+                ia_s = time.perf_counter() - t_ia
+                progreso.seg_ia += ia_s
                 progreso.costo_usd += r.costo_usd
                 progreso.llamadas_ia += 1
                 d = r.decision
@@ -97,6 +109,7 @@ class Agente:
                 bitacora.paso(n, vista.imagen, {
                     "paso": n, "decision": d.model_dump(), "rechazada": not v.ok, "aviso": v.aviso,
                     "costo_paso_usd": r.costo_usd, "costo_acumulado_usd": progreso.costo_usd,
+                    "ia_s": round(ia_s, 2),
                     "modelo": r.modelo, "tokens": [r.tokens_entrada, r.tokens_salida],
                     "pantalla_quieta": vista.quieta, "espera_s": round(vista.espera_s, 2),
                     "ocr_s": round(vista.ocr_s, 2), "textos": vista.lista_texto(),
@@ -115,8 +128,12 @@ class Agente:
                     return Resultado(d.estado, self._limpiar(d.resumen, secretos))
 
                 descripcion = self._describir(d, vista)
+                t_acc = time.perf_counter()
                 await self._actuar(vnc, d, vista)
+                progreso.seg_accion += time.perf_counter() - t_acc
                 nueva = await mirar(vnc, self.cfg, antes=vista.imagen, exigir_cambio=(d.accion == "clic"))
+                progreso.seg_espera += nueva.espera_s
+                progreso.seg_ocr += nueva.ocr_s
                 cambio = "la pantalla cambió" if nueva.cambio else "la pantalla NO cambió"
                 progreso.historial.append(f"{n}. {descripcion} → {cambio}")
                 if nueva.cambio:
