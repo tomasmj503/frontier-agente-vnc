@@ -37,6 +37,9 @@ _CONFIRMACION = re.compile(
     r"cambios aplicados|\bguardad[oa]s?\b|\baplicad[oa]s?\b|\bactualizad[oa]s?\b|\bregistrad[oa]s?\b|"
     r"\bcread[oa]\b|correctamente|[eé]xito|exitos[oa]", re.I)
 MAX_RECHAZOS_CONTEO = 2
+# Botón de página siguiente (texto ya normalizado con _n): "siguiente", "next", "sig".
+_SIGUIENTE = re.compile(r"\b(?:siguiente|next|sig)\b")
+UMBRAL_SIN_CAMBIO = 0.9    # parecido de textos para decir que "Siguiente" no cambió la página
 # Ciclos: se busca una secuencia de 2 a MAX_LARGO_CICLO acciones que se repite sobre la misma pantalla.
 MAX_LARGO_CICLO = 6
 UMBRAL_PANTALLA_IGUAL = 0.85   # parecido (Jaccard) de los textos para decir "es la misma pantalla"
@@ -103,6 +106,10 @@ class Supervisor:
     _aplicado: bool = False
     _confirmacion_vista: bool = False
     _avisos_confirmacion: int = 0
+    # "Única página": solo vale si se probó pulsar Siguiente y la pantalla no cambió
+    _hay_siguiente: bool = False
+    _prueba_siguiente: frozenset[str] | None = None   # pantalla de antes de pulsar Siguiente
+    _unica_comprobada: bool = False
     # Ciclos: historial semántico de lo ejecutado y secuencias ya prohibidas (se le muestran a la IA)
     _historial: list[_Paso] = field(default_factory=list)
     prohibidas: list[str] = field(default_factory=list)
@@ -166,7 +173,13 @@ class Supervisor:
 
     def _observar(self, vista: Vista) -> None:
         """Anota la paginación y los totales que muestra esta pantalla."""
+        ahora = _estado(vista)
+        if self._prueba_siguiente is not None:  # se pulsó Siguiente en el paso anterior
+            antes, self._prueba_siguiente = self._prueba_siguiente, None
+            if antes and ahora and len(antes & ahora) / len(antes | ahora) >= UMBRAL_SIN_CAMBIO:
+                self._unica_comprobada = True    # la página no cambió: no hay más páginas
         self._hay_paginacion = False
+        self._hay_siguiente = any(_SIGUIENTE.search(_n(e.texto)) for e in vista.elementos)
         for e in vista.elementos:
             m = _PAGINA.search(e.texto)
             if m:
@@ -252,6 +265,8 @@ class Supervisor:
         sem = self._firma_semantica(d, vista)
         if sem is not None:
             self._historial.append(_Paso(sem[0], sem[1], _estado(vista)))
+            if sem[0][0] == "clic" and _SIGUIENTE.search(sem[0][1]):
+                self._prueba_siguiente = _estado(vista)
         return Veredicto(True)
 
     def _revisar_cierre(self, d: Decision, vista: Vista) -> Veredicto:
@@ -312,15 +327,21 @@ class Supervisor:
         if self._totales and dado not in self._totales:
             motivo = (f"el programa muestra el total {', '.join(sorted(self._totales))} y la "
                       f"respuesta dada ({dado or 'sin número'}) no coincide con él")
-        elif self._hay_paginacion and not _CONFIRMA_UNICA.search(d.resumen):
+        elif self._hay_paginacion:
             vistas = sorted(self._paginas_vistas) or [1]
             completo = (self._total_paginas and set(range(1, self._total_paginas + 1)) <= set(vistas)) \
                 or (not self._total_paginas and len(vistas) >= 2)
-            if not completo:
-                motivo = ("hay paginación y solo se revisaron las páginas "
-                          f"{', '.join(map(str, vistas))}"
-                          + (f" de {self._total_paginas}" if self._total_paginas else "")
-                          + ": el conteo es parcial")
+            unica = bool(_CONFIRMA_UNICA.search(d.resumen)) and (
+                self._unica_comprobada or not self._hay_siguiente)
+            if not completo and not unica:
+                if _CONFIRMA_UNICA.search(d.resumen) and self._hay_siguiente:
+                    motivo = ("afirmas que es una única página, pero hay un botón «Siguiente» y no lo "
+                              "probaste")
+                else:
+                    motivo = ("hay paginación y solo se revisaron las páginas "
+                              f"{', '.join(map(str, vistas))}"
+                              + (f" de {self._total_paginas}" if self._total_paginas else "")
+                              + ": el conteo es parcial")
         if not motivo:
             return None
 
@@ -332,6 +353,7 @@ class Supervisor:
             }))
         return Veredicto(False, (
             f"No des 'terminada' todavía: {motivo}. Usa el total o los filtros del programa, o recorre "
-            "TODAS las páginas con el botón Siguiente y suma. Si es una sola página, dilo en el resumen "
-            "('única página'). Si no puedes llegar al dato, reporta 'fallida' explicando por qué y "
-            "sin línea 'respuesta:'."))
+            "TODAS las páginas con el botón Siguiente y suma. Para afirmar que es una única página, "
+            "primero pulsa «Siguiente» y comprueba que la pantalla no cambia (el botón puede estar "
+            "deshabilitado) y entonces dilo en el resumen ('única página'). Si no puedes llegar al dato, "
+            "reporta 'fallida' explicando por qué y sin línea 'respuesta:'."))

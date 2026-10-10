@@ -58,10 +58,51 @@ def test_total_del_programa_manda_sobre_el_conteo_a_ojo():
     assert sup.revisar(cierre("respuesta: 45"), pantalla).ok is True
 
 
-def test_una_sola_pagina_confirmada_en_el_resumen_se_acepta():
+def test_unica_pagina_sin_probar_siguiente_se_rechaza():
     sup = Supervisor(tarea=TAREA, secretos=[])
     v = sup.revisar(cierre("Es una única página.\nrespuesta: 3"), vista("Página 1", "Siguiente"))
+    assert v.ok is False and "Siguiente" in v.aviso and "no lo probaste" in v.aviso
+
+
+def _clic_siguiente(sup, pantalla):
+    n = next(e.n for e in pantalla.elementos if "Siguiente" in e.texto)
+    assert sup.revisar(Decision(razon="r", accion="clic", numero=n), pantalla).ok
+
+
+def test_unica_pagina_con_siguiente_probado_y_sin_cambio_se_acepta():
+    sup = Supervisor(tarea=TAREA, secretos=[])
+    p1 = vista("Facturas", "Página 1", "Siguiente", "FV-1001", "FV-1002", "FV-1003")
+    _clic_siguiente(sup, p1)
+    sup.registrar_resultado(True)
+    # la pantalla de después es la misma: Siguiente estaba deshabilitado
+    v = sup.revisar(cierre("Es una única página.\nrespuesta: 3"), p1)
+    assert v.ok is True and v.decision is None
+
+
+def test_siguiente_que_si_cambia_la_pagina_obliga_a_seguir_recorriendo():
+    sup = Supervisor(tarea=TAREA, secretos=[])
+    p1 = vista("Facturas", "Página 1", "Siguiente", "FV-1001", "FV-1002", "FV-1003")
+    p2 = vista("Facturas", "Página 2", "Siguiente", "FV-2001", "FV-2002", "FV-2003")
+    _clic_siguiente(sup, p1)
+    sup.registrar_resultado(True)
+    sup.revisar(cierre("Es una única página.\nrespuesta: 3"), p2)
+    assert sup._unica_comprobada is False   # la página cambió: la afirmación "única página" no se comprobó
+
+
+def test_unica_pagina_sin_boton_siguiente_visible_se_acepta():
+    sup = Supervisor(tarea=TAREA, secretos=[])
+    v = sup.revisar(cierre("Es una única página.\nrespuesta: 3"), vista("Facturas", "Página 1", "FV-1001"))
     assert v.ok is True
+
+
+def test_afirmar_unica_pagina_sin_probar_termina_en_fallida_tras_los_avisos():
+    sup = Supervisor(tarea=TAREA, secretos=[])
+    pantalla = vista("Página 1", "Siguiente")
+    fin = cierre("Es una única página.\nrespuesta: 16")
+    assert sup.revisar(fin, pantalla).ok is False
+    assert sup.revisar(fin, pantalla).ok is False
+    v = sup.revisar(fin, pantalla)
+    assert v.ok and v.decision.estado == "fallida"
 
 
 def test_preguntas_que_no_son_de_conteo_no_se_ven_afectadas():
