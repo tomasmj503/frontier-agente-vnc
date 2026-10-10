@@ -1,0 +1,9 @@
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.0
+pillow==12.3.0
+numpy==2.5.3
+pytesseract==0.3.13
+openai==3.28.0
+httpx==0.28.1
+websockets==17.2
