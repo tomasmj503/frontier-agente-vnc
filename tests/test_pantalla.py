@@ -57,3 +57,21 @@ def test_se_lee_el_boton_guardar_blanco_sobre_azul():
     ruta = Path(RAIZ / "spike" / "p5_6_nuevo_cliente.png")
     textos = [e.texto for e in leer_textos(np.asarray(Image.open(ruta).convert("RGB")), "spa")]
     assert "Guardar" in textos and "Volver" in textos
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="Tesseract no está instalado")
+@pytest.mark.parametrize("texto,centro", [("Guardar", (66, 376)), ("Volver", (145, 376))])
+def test_ubicar_boton_en_la_zona_que_indica_la_ia(texto, centro):
+    from app.screen import ubicar_texto_en_zona
+    img = np.asarray(Image.open(RAIZ / "spike" / "p5_6_nuevo_cliente.png").convert("RGB"))
+    # la IA se equivoca por 40 px en x y 20 en y: el código igual encuentra el botón exacto
+    caja = ubicar_texto_en_zona(img, texto, centro[0] + 40, centro[1] + 20, "spa")
+    assert caja is not None
+    assert abs(caja[0] + caja[2] / 2 - centro[0]) <= 8 and abs(caja[1] + caja[3] / 2 - centro[1]) <= 8
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="Tesseract no está instalado")
+def test_ubicar_boton_que_no_existe_devuelve_none():
+    from app.screen import ubicar_texto_en_zona
+    img = np.asarray(Image.open(RAIZ / "spike" / "p5_6_nuevo_cliente.png").convert("RGB"))
+    assert ubicar_texto_en_zona(img, "Siguiente", 66, 376, "spa") is None
