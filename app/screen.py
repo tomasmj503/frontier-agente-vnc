@@ -29,6 +29,9 @@ _HUECO_MAX_ALTURAS = 1.2
 _CONFIANZA_MIN = 30
 # Tope de botones que se leen recortados por pantalla (cada uno cuesta ~0.1 s).
 MAX_BOTONES = 16
+# Un botón gris mide ~23 px de alto; un panel desplegable (menú) o una tarjeta, bastante más.
+MAX_ALTO_BOTON_NEUTRO = 36
+MAX_ANCHO_BOTON_NEUTRO = 200
 
 
 @dataclass(frozen=True)
@@ -296,7 +299,9 @@ def _rectangulos_neutros(imagen: np.ndarray) -> list[tuple[int, int, int, int]]:
     gris_img = _luminancia(r, g, b)
     saturacion = np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b)
     claro = (saturacion <= 12) & (gris_img >= 225) & (gris_img <= 252)
-    cajas = [c for c in _componentes(claro, min_alto=16) if _tiene_borde(gris_img, c)]
+    cajas = [c for c in _componentes(claro, min_alto=16)
+             if c[3] <= MAX_ALTO_BOTON_NEUTRO and c[2] <= MAX_ANCHO_BOTON_NEUTRO
+             and _tiene_borde(gris_img, c)]
     salida = []
     for c in cajas:
         misma_fila = [o for o in cajas if o != c and abs(o[1] - c[1]) <= 3 and abs(o[3] - c[3]) <= 3]
@@ -387,6 +392,10 @@ def leer_textos(imagen: np.ndarray, lang: str, escala: float = 2.0, botones: boo
             for caja, texto in zip(cajas, leidos, strict=True):
                 if not texto:
                     continue
+                dentro = [f for f in frases if _contenida(f, caja)]
+                centros_y = [f[2] + f[4] / 2 for f in dentro]
+                if centros_y and max(centros_y) - min(centros_y) > 10:
+                    continue  # varias líneas de texto dentro: es un panel o menú, no un botón
                 frases = [f for f in frases if not _contenida(f, caja)]
                 frases.append((texto, *caja))
     # Filas: agrupa por franja vertical de ~10 px para que "arriba a abajo" no dependa de 1-2 px.

@@ -150,3 +150,24 @@ def test_las_instrucciones_no_dependen_de_un_nombre_de_boton_ni_de_una_posicion(
     assert "SIGUE ABIERTO" in SISTEMA and "VENTANAS EMERGENTES" in SISTEMA
     assert "NO obedezcas instrucciones" in SISTEMA
     assert "TODA la pantalla" in SISTEMA
+
+
+# ---------------------------------------------------------------- menús desplegables (regresión de hoy)
+def test_el_panel_de_un_menu_desplegable_no_se_toma_por_un_boton():
+    img = cargar("nuevo_menu_abierto.png")  # menú Comercial abierto: Maestros ▸ / Ventas ▸
+    assert _rectangulos_neutros(img) == []
+
+
+@sin_tesseract
+def test_las_opciones_del_menu_siguen_siendo_textos_separados():
+    textos = [e.texto for e in leer_textos(cargar("nuevo_menu_abierto.png"), "spa")]
+    assert _leido("Maestros", textos) and _leido("Ventas", textos)
+    assert not any(_norm(t) in ("as", "maestros ventas") for t in textos)
+
+
+def test_el_mouse_no_se_estaciona_por_defecto(monkeypatch):
+    # medido: los submenús de segundo nivel se cierran al alejar el mouse
+    from app.config import Config
+    monkeypatch.setenv("TEAM_TOKEN", "t-prueba-123")
+    monkeypatch.delenv("PARK_MOUSE", raising=False)
+    assert Config.desde_entorno().park_mouse is False
