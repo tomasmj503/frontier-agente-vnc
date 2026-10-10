@@ -4,7 +4,9 @@ en código, y no solo en las instrucciones a la IA.
 Si algo no cuadra, rechaza la decisión con un aviso (la IA decide de nuevo, sin tocar la pantalla).
 """
 import re
+import unicodedata
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 
 from app.llm import Decision
 from app.screen import Vista
@@ -35,6 +37,46 @@ _CONFIRMACION = re.compile(
     r"cambios aplicados|\bguardad[oa]s?\b|\baplicad[oa]s?\b|\bactualizad[oa]s?\b|\bregistrad[oa]s?\b|"
     r"\bcread[oa]\b|correctamente|[eé]xito|exitos[oa]", re.I)
 MAX_RECHAZOS_CONTEO = 2
+# Ciclos: se busca una secuencia de 2 a MAX_LARGO_CICLO acciones que se repite sobre la misma pantalla.
+MAX_LARGO_CICLO = 6
+UMBRAL_PANTALLA_IGUAL = 0.85   # parecido (Jaccard) de los textos para decir "es la misma pantalla"
+UMBRAL_TEXTO_IGUAL = 0.85      # parecido de dos textos de botón/enlace leídos con ruido de lectura
+MAX_PROHIBIDAS = 3
+
+
+def _n(texto: str) -> str:
+    """Minúsculas, sin tildes y solo letras, números y espacios (para comparar textos leídos)."""
+    sin = "".join(c for c in unicodedata.normalize("NFD", texto.lower()) if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9 ]", "", sin).strip()
+
+
+def _estado(vista: Vista) -> frozenset[str]:
+    """Huella de una pantalla: el conjunto de sus textos normalizados (sin posiciones ni números)."""
+    return frozenset(t for t in (_n(e.texto) for e in vista.elementos) if len(t) >= 2)
+
+
+def _misma_pantalla(a: frozenset[str], b: frozenset[str]) -> bool:
+    if not a or not b:
+        return False
+    return len(a & b) / len(a | b) >= UMBRAL_PANTALLA_IGUAL
+
+
+def _misma_firma(a: tuple[str, str], b: tuple[str, str]) -> bool:
+    if a[0] != b[0]:
+        return False
+    if a[1] == b[1]:
+        return True
+    if min(len(a[1]), len(b[1])) < 4:
+        return False
+    return SequenceMatcher(None, a[1], b[1]).ratio() >= UMBRAL_TEXTO_IGUAL
+
+
+@dataclass
+class _Paso:
+    firma: tuple[str, str]      # (tipo, destino): lo que se hizo, sin números ni posiciones
+    etiqueta: str               # texto legible para avisar a la IA
+    estado: frozenset[str]      # pantalla en la que se decidió
+    cambio: bool | None = None  # ¿la pantalla cambió después de actuar?
 
 
 @dataclass
@@ -61,6 +103,66 @@ class Supervisor:
     _aplicado: bool = False
     _confirmacion_vista: bool = False
     _avisos_confirmacion: int = 0
+    # Ciclos: historial semántico de lo ejecutado y secuencias ya prohibidas (se le muestran a la IA)
+    _historial: list[_Paso] = field(default_factory=list)
+    prohibidas: list[str] = field(default_factory=list)
+
+    def registrar_resultado(self, cambio: bool) -> None:
+        """El agente avisa si la pantalla cambió tras ejecutar la última acción aprobada."""
+        if self._historial:
+            self._historial[-1].cambio = cambio
+
+    def descartar_ultima(self) -> None:
+        """La última acción aprobada no llegó a ejecutarse (por ejemplo, no se halló el botón)."""
+        if self._historial:
+            self._historial.pop()
+
+    @staticmethod
+    def _firma_semantica(d: Decision, vista: Vista) -> tuple[tuple[str, str], str] | None:
+        """Qué se hizo en términos de la app (texto del botón o enlace), no de números de la lista."""
+        if d.accion == "clic":
+            e = vista.por_numero(d.numero)
+            if e is None:
+                return None
+            texto = _n(e.texto) or f"pos{e.cx // 40}_{e.cy // 24}"
+            return ("clic", texto), f"clic en «{e.texto.strip() or texto}»"
+        if d.accion == "clic_zona":
+            return ("clic", _n(d.texto)), f"clic en «{d.texto.strip()}»"
+        if d.accion == "escribir":
+            campo = vista.por_numero(d.en) if d.en > 0 else None
+            etiqueta = campo.texto if campo is not None else "campo enfocado"
+            return ("escribir", f"{_n(d.texto)}@{_n(etiqueta)}"), f"escribir «{d.texto}» en {etiqueta}"
+        if d.accion == "tecla":
+            return ("tecla", d.tecla.lower().replace(" ", "")), f"tecla {d.tecla}"
+        if d.accion == "scroll":
+            return ("scroll", d.direccion), f"scroll {d.direccion}"
+        return None
+
+    def _detectar_ciclo(self, firma: tuple[str, str], estado: frozenset[str]) -> list[str] | None:
+        """¿La acción propuesta completa una secuencia que ya se hizo antes sobre la misma pantalla?
+
+        Se compara la cola del historial más la acción propuesta (de 2 a 6 acciones) con un tramo
+        anterior que no se solape. Hace falta que: las acciones coincidan, la pantalla donde empezó
+        cada tramo sea la misma (se volvió al mismo lugar), haya al menos un clic y no sea la misma
+        acción repetida (eso, como Siguiente varias veces, es avanzar por páginas).
+        Dos registros distintos (otro código en el título o en los campos) son pantallas distintas.
+        """
+        h = self._historial
+        n = len(h)
+        for largo in range(MAX_LARGO_CICLO, 1, -1):
+            if n < 2 * largo - 1:
+                continue
+            actual = [p.firma for p in h[n - (largo - 1):]] + [firma]
+            etiquetas = [p.etiqueta for p in h[n - (largo - 1):]]
+            inicio = h[n - (largo - 1)].estado
+            if len({a for a in actual}) < 2 or not any(a[0] == "clic" for a in actual):
+                continue
+            for i in range(0, n - 2 * largo + 2):
+                previo = h[i:i + largo]
+                if all(_misma_firma(a, p.firma) for a, p in zip(actual, previo, strict=True)) \
+                        and _misma_pantalla(previo[0].estado, inicio):
+                    return etiquetas
+        return None
 
     def _observar(self, vista: Vista) -> None:
         """Anota la paginación y los totales que muestra esta pantalla."""
@@ -100,6 +202,23 @@ class Supervisor:
         if d.accion == "escribir" and contiene_secreto(d.texto, self.secretos):
             return Veredicto(False, "No debes escribir contraseñas ni claves en el programa.")
 
+        # 3a) Ciclos: repetir una secuencia de acciones sobre la misma pantalla, sin avanzar.
+        if d.accion != "terminar":
+            sem = self._firma_semantica(d, vista)
+            if sem is not None:
+                ciclo = self._detectar_ciclo(sem[0], _estado(vista))
+                if ciclo is not None:
+                    secuencia = " → ".join([*ciclo, sem[1]])
+                    if secuencia not in self.prohibidas:
+                        self.prohibidas = [*self.prohibidas, secuencia][-MAX_PROHIBIDAS:]
+                    return Veredicto(False, (
+                        f"Estás repitiendo una secuencia sin avanzar: {secuencia}. Ya la hiciste antes y "
+                        "volviste a la misma pantalla, así que repetirla no te dará nada nuevo: esa "
+                        "secuencia queda PROHIBIDA. Haz algo distinto: otro botón o enlace de esta "
+                        "pantalla, desplazarte (scroll) para ver más contenido o filas, otro menú, o "
+                        "leer completo el registro antes de cerrarlo. Si ya probaste todo y no puedes "
+                        "llegar al dato, reporta 'fallida' explicando qué intentaste."))
+
         # 3b) Guardar/aplicar: una sola vez por registro (el formulario puede seguir abierto).
         if d.accion in ("clic", "clic_zona"):
             elemento = vista.por_numero(d.numero) if d.accion == "clic" else None
@@ -130,6 +249,9 @@ class Supervisor:
 
         if d.accion == "terminar":
             return self._revisar_cierre(d, vista)
+        sem = self._firma_semantica(d, vista)
+        if sem is not None:
+            self._historial.append(_Paso(sem[0], sem[1], _estado(vista)))
         return Veredicto(True)
 
     def _revisar_cierre(self, d: Decision, vista: Vista) -> Veredicto:

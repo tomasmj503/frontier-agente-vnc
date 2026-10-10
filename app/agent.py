@@ -91,7 +91,7 @@ class Agente:
                     avisos_paso.append(
                         "La pantalla seguía cambiando cuando la leí; puede estar a medio cargar.")
                 msg = llm.mensaje_paso(tarea, progreso.historial, self._lista(vista), avisos_paso,
-                                       progreso.notas)
+                                       progreso.notas, supervisor.prohibidas)
 
                 t_ia = time.perf_counter()
                 try:
@@ -152,6 +152,7 @@ class Agente:
                         rechazos += 1
                         aviso = (f"No encontré un botón «{d.texto}» cerca de ({d.zona_x}, {d.zona_y}). "
                                  "Mira de nuevo la captura y da otra zona, o usa un número de la lista.")
+                        supervisor.descartar_ultima()  # no se ejecutó: no cuenta para los ciclos
                         progreso.historial.append(f"{n}. clic_zona «{d.texto}» → no se encontró")
                         if rechazos >= MAX_RECHAZOS_SEGUIDOS:
                             return self._fallo(progreso, aviso)
@@ -167,6 +168,7 @@ class Agente:
                                     exigir_cambio=(d.accion in ("clic", "clic_zona")))
                 progreso.seg_espera += nueva.espera_s
                 progreso.seg_ocr += nueva.ocr_s
+                supervisor.registrar_resultado(nueva.cambio)
                 cambio = "la pantalla cambió" if nueva.cambio else "la pantalla NO cambió"
                 progreso.historial.append(f"{n}. {descripcion} → {cambio}")
                 if nueva.cambio:

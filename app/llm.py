@@ -175,6 +175,14 @@ derecha o abajo, y los botones pueden cambiar de orden.
 - limpiar: Limpiar, Borrar filtros, Restablecer
 Si el botón que necesitas no está en la lista de textos pero lo ves en la captura, usa clic_zona.
 
+NO DES VUELTAS
+- Al abrir un registro, léelo COMPLETO (con scroll si hace falta) antes de cerrarlo. No lo cierres \
+y lo vuelvas a abrir para buscar lo mismo: no aparecerá nada nuevo.
+- Si notas que repites las mismas acciones y la pantalla vuelve al mismo lugar, para. El sistema \
+te prohibirá repetir esa secuencia ("SECUENCIAS PROHIBIDAS"): prueba otro camino (otro botón o \
+enlace, scroll para ver más, otro menú, otra forma de filtrar). Si ya probaste todo y no llegas \
+al dato, reporta 'fallida' y explica qué intentaste.
+
 FORMULARIOS QUE NO SE CIERRAN AL GUARDAR
 En algunos programas, al guardar o aplicar el formulario SIGUE ABIERTO (queda con los datos y a \
 veces con un código nuevo en el título) y aparece un aviso breve ("Cambios aplicados", "Guardado"...) \
@@ -294,13 +302,16 @@ class Llm:
 
     # ---- armar el mensaje del paso
     def mensaje_paso(self, tarea: str, historial: list[str], lista_textos: str, avisos: list[str],
-                     notas: list[str] | None = None) -> str:
+                     notas: list[str] | None = None, prohibidas: list[str] | None = None) -> str:
         partes = [f"ORDEN: {tarea}"]
         if historial:
             partes.append("LO QUE YA HICISTE (más reciente al final):\n" + "\n".join(historial[-12:]))
         if notas:
             partes.append("TUS NOTAS (las que anotaste en pasos anteriores; úsalas, no las pierdas):\n"
                           + "\n".join(f"- {n}" for n in notas[-MAX_NOTAS:]))
+        if prohibidas:
+            partes.append("SECUENCIAS PROHIBIDAS (las repetiste sin avanzar; haz otra cosa):\n"
+                          + "\n".join(f"- {x}" for x in prohibidas))
         for a in avisos:
             partes.append(f"AVISO: {a}")
         partes.append("TEXTOS EN PANTALLA:\n" + (lista_textos or "(no se leyó ningún texto)"))
