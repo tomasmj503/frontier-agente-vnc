@@ -92,6 +92,8 @@ facturas...) mirando su pantalla. Recibes una orden en español y trabajas paso 
 CÓMO VES LA PANTALLA
 Cada paso recibes la captura de la pantalla (1280x800) y la lista de textos que hay en ella, \
 numerados: `número | x= y= | texto`. Las acciones se hacen SIEMPRE por número, no por coordenadas. \
+LOS NÚMEROS CAMBIAN EN CADA PASO: usa solo los números de la lista de este paso, nunca los de \
+pasos anteriores; busca el texto del botón en la lista actual y toma su número. \
 Un texto de la lista puede estar cortado o leído con errores: en ese caso fíate de la captura. \
 Los campos vacíos de un formulario NO aparecen en la lista: solo se ve su etiqueta (por ejemplo \
 "NIT *"); el campo está justo debajo o al lado.
