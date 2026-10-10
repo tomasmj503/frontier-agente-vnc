@@ -30,6 +30,8 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 13 | `29a34de` (E3 repetido) | | | pasó 118 s · **falló** 103 s (43 otra vez) | | |
 | 14 | opción A (códigos de fila en la nota), E3 ×3 | | | pasó 97 s · pasó 109 s · pasó 97 s (45, 45, 45) | | |
 | 15 | opción A, los 5 casos | pasó 127 s, 16 pasos, US$0.067 | pasó 85 s, 10 pasos, US$0.043 | pasó 100 s, 11 pasos, US$0.060 | pasó 97 s, 11 pasos, US$0.054 | pasó 55 s, 7 pasos, US$0.029 |
+| 16 | regla anti-ciclo, los 5 casos | pasó 130 s, 15 pasos | pasó 100 s, 10 pasos | **falló** 106 s: respondió 16 ("única página") | **falló** 52 s: `ConnectionClosedError` | pasó 61 s, 7 pasos |
+| 17 | regla anti-ciclo, repeticiones | | | pasó 92 s · pasó 96 s · pasó 99 s (45 las tres) | pasó 104 s | |
 Publicado en `frontier.jutilabs.com` (servidor con versiones anteriores a las del repo):
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
@@ -384,6 +386,47 @@ en las bitácoras (con captura):
   una medición la IA empezó leyendo la página sin filtrar por estado y se corrigió sola. Está
   **commiteado en local y sin subir a GitHub ni publicar en el servidor**, a la espera de tu orden.
 
+### 7) Regla general anti-ciclo (el ciclo de la clínica) — solo local, sin publicar
+- **Qué falló (en la evaluación del set oculto, app de la clínica):** el agente abría la cita C-1460, la
+  cerraba, filtraba y la volvía a abrir, una y otra vez, hasta el tope de 270 s.
+- **Por qué la regla que existía no lo veía:** solo detectaba *la misma acción tres veces seguidas sobre la
+  misma pantalla*. Este ciclo alterna tres acciones distintas y las pantallas cambian entre una y otra.
+- **Qué se cambió (`supervisor.py`, `llm.py`, `agent.py`):**
+  1. Cada acción se describe por *lo que hace en la app* (el texto del botón o enlace, el texto escrito y
+     su campo), no por números de la lista ni por posiciones.
+  2. Antes de ejecutar una acción se mira si, junto con las anteriores (de 2 a 6 acciones), completa una
+     **secuencia que ya se hizo antes empezando en la misma pantalla** (los textos de la pantalla se parecen
+     ≥ 85 %). Hace falta que haya al menos un clic y que no sea la misma acción repetida.
+  3. Si es un ciclo, se rechaza: la IA recibe un aviso con la secuencia, y esa secuencia queda en una lista
+     **"SECUENCIAS PROHIBIDAS"** que se le muestra en cada paso siguiente. Se le pide probar otro botón o
+     enlace, desplazarse, otro menú o leer el registro completo antes de cerrarlo; y, si ya probó todo,
+     reportar `fallida` explicando qué intentó.
+  4. Instrucciones nuevas ("NO DES VUELTAS"): leer un registro completo antes de cerrarlo y no reabrirlo
+     para buscar lo mismo.
+- **Qué NO se bloquea (probado):** dos registros distintos con los mismos botones (Aplicar/Cerrar), paginar
+  con "Siguiente", volver a la página anterior para recontar y seguir, reintentar el mismo clic porque la
+  pantalla no cambió (el modal que ignora el primer clic) y llenar un formulario con Tab y texto.
+- **Medido:**
+  - 10 pruebas nuevas, incluida una con el agente completo y un escritorio de mentira que reproduce la
+    secuencia abrir → Cerrar → Filtrar → abrir → **Cerrar (rechazado)** → scroll. Se comprobó que las
+    pruebas **fallan si la regla se apaga**. En total pasan 82.
+  - **Regresión en el escritorio de práctica: 0 rechazos por ciclo en 9 corridas reales** (5 casos + 4
+    repeticiones), es decir, ningún falso positivo.
+- **Qué NO se pudo medir:** no hay una copia de la app de la clínica en local, así que el ciclo real **no se
+  probó contra ella**; se reprodujo su secuencia exacta de forma simulada. Cuánto tiempo ahorra es una
+  **estimación**: la regla actúa tras unas 4–5 acciones (≈ 40–50 s a 8–10 s por paso) en lugar de 270 s.
+- **Límites conocidos:** (a) un ciclo con una pantalla que cambia mucho en cada vuelta (por ejemplo una
+  lista que se reordena) no se reconoce como "la misma pantalla"; (b) ciclos de más de 6 acciones no se
+  detectan; (c) la regla impide repetir, pero no garantiza que la IA encuentre el dato: puede terminar
+  `fallida`.
+- **Dos fallos de la corrida de 5 casos que NO vienen de esta regla (0 ciclos prohibidos):**
+  - **E4, `ConnectionClosedError`:** la conexión VNC se cortó a mitad de la tarea y no hay reconexión después
+    de conectar (solo un reintento al inicio). Repetido: pasó (104 s).
+  - **E3, respondió 16 con "única página":** contó una sola página aunque "Siguiente" estaba en la lista y
+    aprovechó la frase de escape de la regla de conteos. Repetido 3 veces: 45, 45, 45.
+  - *Abierto, a tu decisión:* (1) pedir que antes de afirmar "única página" se **pruebe** pulsar "Siguiente"
+    y se compruebe que no cambia la pantalla; (2) reconectar el VNC una vez si se corta durante la tarea.
+
 ---
 
 ## Riesgos y pendientes conocidos
@@ -391,6 +434,8 @@ en las bitácoras (con captura):
 - La IA es lo más lento (5 s por llamada o más). Secuencias de varias acciones por decisión quedan **para después del imprevisto**.
 - E3 acierta 2 de 3 veces: la IA a veces se salta una fila al contar una página de 20 (cambio 18).
 - **E3 (conteo de filas):** con la opción A acertó 4 de 4 (antes ~la mitad). Pocas muestras; si en la evaluación falla, el síntoma sería un conteo off-by-uno.
+- **Frase de escape "única página":** la IA puede afirmarlo sin comprobarlo (1 caso en 8 corridas de E3).
+- **Conexión VNC cortada a mitad de tarea:** hoy la tarea termina `fallida` (1 caso).
 - **Tema nuevo en servidor:** lo publicado está detrás del repo; falta `git pull && ./deploy.sh`.
 - Lo publicado en el servidor está **detrás** del repo: falta `git pull && ./deploy.sh` cuando decidas publicar.
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
