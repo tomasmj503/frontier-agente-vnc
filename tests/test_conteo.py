@@ -109,3 +109,13 @@ def test_preguntas_que_no_son_de_conteo_no_se_ven_afectadas():
     sup = Supervisor(tarea="¿Cuál es el teléfono de Ana Torres?", secretos=[])
     v = sup.revisar(cierre("respuesta: 3014445566"), vista("Página 1", "Siguiente"))
     assert v.ok is True
+
+
+def test_una_accion_descartada_no_cuenta_para_la_misma_accion_tres_veces():
+    sup = Supervisor(tarea="Abre el menú", secretos=[])
+    pantalla = vista("Menú", "Maestros", "Ventas")
+    d = Decision(razon="r", accion="clic", numero=2)
+    assert sup.revisar(d, pantalla).ok        # 1.ª (se corta la conexión: no se ejecutó)
+    sup.descartar_ultima()
+    assert sup.revisar(d, pantalla).ok        # 2.ª
+    assert sup.revisar(d, pantalla).ok        # 3.ª: con la descartada serían 3 y se rechazaría

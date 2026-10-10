@@ -120,9 +120,11 @@ class Supervisor:
             self._historial[-1].cambio = cambio
 
     def descartar_ultima(self) -> None:
-        """La última acción aprobada no llegó a ejecutarse (por ejemplo, no se halló el botón)."""
+        """La última acción aprobada no llegó a ejecutarse (no se halló el botón o se cortó la conexión)."""
         if self._historial:
             self._historial.pop()
+        if self._firmas:
+            self._firmas.pop()  # tampoco cuenta para "la misma acción tres veces"
 
     @staticmethod
     def _firma_semantica(d: Decision, vista: Vista) -> tuple[tuple[str, str], str] | None:
