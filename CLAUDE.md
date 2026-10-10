@@ -29,3 +29,7 @@
 
 ## Kit genérico
 - Este kit es genérico. Todo dato del reto (web, rutas, formatos, tiempos, cabeceras, casos) sale SOLO del BRIEF.md de este repo. Si encuentras referencias a otro reto, ignóralas y avísame.
+- El probador run_cases.py del kit es de otro reto; para este reto se usa un bench.py nuevo que valida con /__check.
+
+## Diseño
+- DISENO.md es la fuente de verdad: construir según él. Si algo del diseño hay que cambiar, dame opciones y espera mi aprobación.
