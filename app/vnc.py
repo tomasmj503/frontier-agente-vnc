@@ -69,7 +69,7 @@ def _des_bloque(clave8: bytes, bloque8: bytes) -> bytes:
     bits = _perm(_bits(bloque8), _IP)
     izq, der = bits[:32], bits[32:]
     for k in subclaves:
-        x = [a ^ b for a, b in zip(_perm(der, _E), k)]
+        x = [a ^ b for a, b in zip(_perm(der, _E), k, strict=True)]
         salida: list[int] = []
         for i in range(8):
             ch = x[6 * i:6 * i + 6]
@@ -78,7 +78,7 @@ def _des_bloque(clave8: bytes, bloque8: bytes) -> bytes:
             v = _S[i][fila * 16 + col]
             salida += [(v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1]
         f = _perm(salida, _P)
-        izq, der = der, [a ^ b for a, b in zip(izq, f)]
+        izq, der = der, [a ^ b for a, b in zip(izq, f, strict=True)]
     return _bytes(_perm(der + izq, _FP))
 
 
@@ -245,8 +245,10 @@ class Vnc:
         await self._puntero(0, x, y)
         await asyncio.sleep(self._cfg.click_move_ms / 1000)
         await self._puntero(1, x, y)
-        await asyncio.sleep(self._cfg.click_hold_ms / 1000)
-        await self._puntero(0, x, y)
+        try:
+            await asyncio.sleep(self._cfg.click_hold_ms / 1000)
+        finally:  # aunque la tarea se cancele a medias, el botón se suelta
+            await self._puntero(0, x, y)
 
     async def scroll(self, x: int, y: int, direccion: str, pasos: int = 3) -> None:
         """Rueda del mouse sobre (x, y): botón 4 = arriba, botón 5 = abajo."""
@@ -264,9 +266,11 @@ class Vnc:
     async def _pulsar(self, simbolos: list[int], sostener_ms: float) -> None:
         for s in simbolos:
             await self._evento_tecla(s, True)
-        await asyncio.sleep(sostener_ms / 1000)
-        for s in reversed(simbolos):
-            await self._evento_tecla(s, False)
+        try:
+            await asyncio.sleep(sostener_ms / 1000)
+        finally:  # las teclas siempre se sueltan
+            for s in reversed(simbolos):
+                await self._evento_tecla(s, False)
         await asyncio.sleep(0.03)
 
     async def tecla(self, combinacion: str) -> None:

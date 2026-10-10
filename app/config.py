@@ -72,6 +72,10 @@ class Config:
     key_hold_ms: float
     type_hold_ms: float
 
+    # Dónde hacer clic para llegar a un campo desde su etiqueta (píxeles)
+    field_offset_y: float   # "debajo": cuántos píxeles bajo el centro de la etiqueta
+    field_offset_x: float   # "derecha": cuántos píxeles a la derecha del final de la etiqueta
+
     # Esperas de pantalla
     screen_stable_diff: float   # fracción de píxeles distintos que se tolera (cursor parpadeando)
     screen_stable_max_s: float  # tope de espera hasta que la pantalla esté quieta
@@ -97,7 +101,7 @@ class Config:
             openrouter_api_key=_texto("OPENROUTER_API_KEY", ""),
             openrouter_budget_usd=_numero("OPENROUTER_BUDGET_USD", 0.0),
             llm_model=_texto("LLM_MODEL", "google/gemini-3.8-flash"),
-            llm_send_image=_booleano("LLM_SEND_IMAGE", False),
+            llm_send_image=_booleano("LLM_SEND_IMAGE", True),
             llm_timeout_s=_numero("LLM_TIMEOUT_S", 60),
             task_max_seconds=_numero("TASK_MAX_SECONDS", 270),
             task_max_cost_usd=_numero("TASK_MAX_COST_USD", 0.15),
@@ -106,6 +110,8 @@ class Config:
             click_move_ms=_numero("CLICK_MOVE_MS", 100),
             key_hold_ms=_numero("KEY_HOLD_MS", 50),
             type_hold_ms=_numero("TYPE_HOLD_MS", 30),
+            field_offset_y=_numero("FIELD_OFFSET_Y", 18),
+            field_offset_x=_numero("FIELD_OFFSET_X", 25),
             screen_stable_diff=_numero("SCREEN_STABLE_DIFF", 0.01),
             screen_stable_max_s=_numero("SCREEN_STABLE_MAX_S", 3),
             screen_poll_s=_numero("SCREEN_POLL_S", 0.4),
