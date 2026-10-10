@@ -99,49 +99,63 @@ def correr_caso(caso: dict, base: str, tope_s: float, secretos: list[str]) -> di
     desk = {"Authorization": f"Bearer {os.environ['DESKTOP_TOKEN']}"}
     fila = {"id": caso["id"], "estado": "?", "resumen": "", "check": None, "problemas": [],
             "segundos": 0.0, "costo": None, "pasos": None, "post_s": None}
+    paso = "reset"
+    try:
+        r = httpx.post(f"{esc}/__reset", headers=desk, timeout=90)
+        if r.status_code >= 300:
+            fila["problemas"].append(f"reset falló ({r.status_code})")
+            return fila
+        time.sleep(2)
 
-    r = httpx.post(f"{esc}/__reset", headers=desk, timeout=90)
-    if r.status_code >= 300:
-        fila["problemas"].append(f"reset falló ({r.status_code})")
-        return fila
-    time.sleep(2)
+        paso = "POST /tasks"
+        cuerpo = {"tarea": caso["instruccion"],
+                  "escritorio": {"url": esc_url, "password": os.environ["DESKTOP_PASSWORD"]}}
+        t0 = time.perf_counter()
+        r = httpx.post(f"{base}/tasks", headers=team, json=cuerpo, timeout=20)
+        fila["post_s"] = time.perf_counter() - t0
+        if r.status_code != 200:
+            fila["problemas"].append(f"POST /tasks respondió {r.status_code}")
+            return fila
+        task_id = r.json()["task_id"]
+        if fila["post_s"] >= 2:
+            fila["problemas"].append(f"POST /tasks tardó {fila['post_s']:.1f} s (máximo 2 s)")
 
-    cuerpo = {"tarea": caso["instruccion"],
-              "escritorio": {"url": esc_url, "password": os.environ["DESKTOP_PASSWORD"]}}
-    t0 = time.perf_counter()
-    r = httpx.post(f"{base}/tasks", headers=team, json=cuerpo, timeout=10)
-    fila["post_s"] = time.perf_counter() - t0
-    if r.status_code != 200:
-        fila["problemas"].append(f"POST /tasks respondió {r.status_code}")
-        return fila
-    task_id = r.json()["task_id"]
-    if fila["post_s"] >= 2:
-        fila["problemas"].append(f"POST /tasks tardó {fila['post_s']:.1f} s (máximo 2 s)")
+        paso = "GET /tasks/{id}"
+        estado, resumen, fallos = "en_curso", "", 0
+        while time.perf_counter() - t0 < tope_s:
+            time.sleep(3)
+            try:
+                g = httpx.get(f"{base}/tasks/{task_id}", headers=team, timeout=15).json()
+            except httpx.HTTPError as e:  # un corte aislado no tumba la prueba
+                fallos += 1
+                fila["problemas"].append(f"consulta {fallos} falló: {type(e).__name__}")
+                if fallos >= 5:
+                    break
+                continue
+            estado, resumen = g["estado"], g["resumen"]
+            if estado != "en_curso":
+                break
+        fila["segundos"] = time.perf_counter() - t0
+        if estado == "en_curso":
+            fila["problemas"].append(f"sigue en_curso a los {int(tope_s)} s")
 
-    estado, resumen = "en_curso", ""
-    while time.perf_counter() - t0 < tope_s:
-        time.sleep(3)
-        g = httpx.get(f"{base}/tasks/{task_id}", headers=team, timeout=10).json()
-        estado, resumen = g["estado"], g["resumen"]
-        if estado != "en_curso":
-            break
-    fila["segundos"] = time.perf_counter() - t0
-    if estado == "en_curso":
-        fila["problemas"].append(f"sigue en_curso a los {int(tope_s)} s")
+        paso = "POST /__check"
+        chk = httpx.post(f"{esc}/__check", headers=desk, json=caso, timeout=30)
+        fila["check"] = chk.json() if chk.status_code == 200 else {"pass": False, "checks": []}
+        if not fila["check"].get("pass"):
+            malos = [c["nombre"] for c in fila["check"].get("checks", []) if not c.get("ok")]
+            motivo = ", ".join(malos) or f"/__check {chk.status_code}"
+            fila["problemas"].append("la app no quedó bien: " + motivo)
 
-    chk = httpx.post(f"{esc}/__check", headers=desk, json=caso, timeout=30)
-    fila["check"] = chk.json() if chk.status_code == 200 else {"pass": False, "checks": []}
-    if not fila["check"].get("pass"):
-        malos = [c["nombre"] for c in fila["check"].get("checks", []) if not c.get("ok")]
-        motivo = ", ".join(malos) or f"/__check {chk.status_code}"
-        fila["problemas"].append("la app no quedó bien: " + motivo)
+        fila["problemas"] += evaluar_resumen(caso, estado, resumen, secretos)
+        fila["estado"], fila["resumen"] = estado, ocultar(resumen, secretos)
 
-    fila["problemas"] += evaluar_resumen(caso, estado, resumen, secretos)
-    fila["estado"], fila["resumen"] = estado, ocultar(resumen, secretos)
-
-    d = httpx.get(f"{base}/tasks/{task_id}/detalle", headers=team, timeout=10)
-    if d.status_code == 200:
-        fila["costo"], fila["pasos"] = d.json().get("costo_usd"), d.json().get("pasos")
+        paso = "GET /tasks/{id}/detalle"
+        d = httpx.get(f"{base}/tasks/{task_id}/detalle", headers=team, timeout=15)
+        if d.status_code == 200:
+            fila["costo"], fila["pasos"] = d.json().get("costo_usd"), d.json().get("pasos")
+    except httpx.HTTPError as e:
+        fila["problemas"].append(f"error de red en «{paso}»: {type(e).__name__}")
     return fila
 
 
