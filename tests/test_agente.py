@@ -109,3 +109,37 @@ def test_el_resumen_final_no_lleva_la_clave(entorno):
     guion = [_respuesta(accion="terminar", estado="terminada", resumen="La clave es clave-123.")]
     res, _ = _correr(cfg, tmp, guion)
     assert "clave-123" not in res.resumen
+
+
+def test_clic_zona_hace_clic_en_el_centro_del_boton_encontrado(entorno, monkeypatch):
+    cfg, vnc, tmp = entorno
+    monkeypatch.setattr(agente, "ubicar_texto_en_zona", lambda img, texto, x, y, lang: (100, 200, 80, 24))
+    guion = [
+        _respuesta(accion="clic_zona", texto="Siguiente", zona_x=210, zona_y=690),
+        _respuesta(accion="terminar", estado="terminada", resumen="Listo."),
+    ]
+    res, _ = _correr(cfg, tmp, guion)
+    assert res.estado == "terminada"
+    assert vnc.acciones == [("clic", 140, 212)]
+
+
+def test_clic_zona_sin_boton_no_toca_nada_y_la_ia_corrige(entorno, monkeypatch):
+    cfg, vnc, tmp = entorno
+    monkeypatch.setattr(agente, "ubicar_texto_en_zona", lambda img, texto, x, y, lang: None)
+    guion = [
+        _respuesta(accion="clic_zona", texto="Siguiente", zona_x=210, zona_y=690),
+        _respuesta(accion="terminar", estado="fallida", resumen="No pude paginar."),
+    ]
+    res, _ = _correr(cfg, tmp, guion)
+    assert res.estado == "fallida" and vnc.acciones == []
+
+
+def test_clic_zona_exige_texto_y_coordenadas_dentro_de_la_pantalla():
+    with pytest.raises(ValueError):
+        Decision.model_validate({"razon": "r", "accion": "clic_zona", "texto": "", "zona_x": 5, "zona_y": 5})
+    with pytest.raises(ValueError):
+        Decision.model_validate(
+            {"razon": "r", "accion": "clic_zona", "texto": "Siguiente", "zona_x": 0, "zona_y": 100})
+    with pytest.raises(ValueError):
+        Decision.model_validate(
+            {"razon": "r", "accion": "clic_zona", "texto": "Siguiente", "zona_x": 2000, "zona_y": 100})

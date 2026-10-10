@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from app.bitacora import Bitacora
 from app.config import Config
 from app.llm import Decision, ErrorLlm, Llm, RespuestaLlm
-from app.screen import Elemento, Vista, mirar
+from app.screen import Elemento, Vista, a_png, mirar, ubicar_texto_en_zona
 from app.secretos import ocultar
 from app.supervisor import Supervisor
 from app.vnc import ErrorVnc, Vnc
@@ -52,8 +52,7 @@ class Agente:
     # ------------------------------------------------------------ enchufe para capas 2 y 3
     async def decidir(self, llm: Llm, mensaje: str, vista: Vista) -> RespuestaLlm:
         """Hoy: siempre la IA. Aquí se enchufan después procedimientos y habilidades sin IA."""
-        from app.screen import a_png
-        png = a_png(vista.imagen) if self.cfg.llm_send_image else None
+        png = await asyncio.to_thread(a_png, vista.imagen) if self.cfg.llm_send_image else None
         return await llm.decidir(mensaje, png)
 
     # ------------------------------------------------------------ ciclo principal
@@ -119,7 +118,7 @@ class Agente:
                 v = supervisor.revisar(d, vista)
                 if v.decision is not None:
                     d = v.decision
-                bitacora.paso(n, vista.imagen, {
+                await asyncio.to_thread(bitacora.paso, n, vista.imagen, {
                     "paso": n, "decision": d.model_dump(), "rechazada": not v.ok, "aviso": v.aviso,
                     "costo_paso_usd": r.costo_usd, "costo_acumulado_usd": progreso.costo_usd,
                     "ia_s": round(ia_s, 2),
@@ -142,9 +141,26 @@ class Agente:
 
                 descripcion = self._describir(d, vista)
                 t_acc = time.perf_counter()
-                await self._actuar(vnc, d, vista)
+                if d.accion == "clic_zona":
+                    caja = await asyncio.to_thread(
+                        ubicar_texto_en_zona, vista.imagen, d.texto, d.zona_x, d.zona_y, self.cfg.ocr_lang)
+                    if caja is None:  # no se toca nada: se le avisa a la IA para que corrija la zona
+                        rechazos += 1
+                        aviso = (f"No encontré un botón «{d.texto}» cerca de ({d.zona_x}, {d.zona_y}). "
+                                 "Mira de nuevo la captura y da otra zona, o usa un número de la lista.")
+                        progreso.historial.append(f"{n}. clic_zona «{d.texto}» → no se encontró")
+                        if rechazos >= MAX_RECHAZOS_SEGUIDOS:
+                            return self._fallo(progreso, aviso)
+                        avisos.append(aviso)
+                        continue
+                    cx, cy = caja[0] + caja[2] // 2, caja[1] + caja[3] // 2
+                    descripcion = f"clic en el botón «{d.texto}» ubicado en ({cx}, {cy})"
+                    await vnc.clic(cx, cy)
+                else:
+                    await self._actuar(vnc, d, vista)
                 progreso.seg_accion += time.perf_counter() - t_acc
-                nueva = await mirar(vnc, self.cfg, antes=vista.imagen, exigir_cambio=(d.accion == "clic"))
+                nueva = await mirar(vnc, self.cfg, antes=vista.imagen,
+                                    exigir_cambio=(d.accion in ("clic", "clic_zona")))
                 progreso.seg_espera += nueva.espera_s
                 progreso.seg_ocr += nueva.ocr_s
                 cambio = "la pantalla cambió" if nueva.cambio else "la pantalla NO cambió"
@@ -171,7 +187,7 @@ class Agente:
                 x, y = self._punto_campo(e, d.donde)
                 await vnc.clic(x, y)
                 await asyncio.sleep(0.15)  # que el campo tome el foco antes de escribir
-            await vnc.escribir(d.texto, reemplazar=True)
+            await vnc.escribir(d.texto, reemplazar=(d.campo != "lista"))
         elif d.accion == "tecla":
             await vnc.tecla(d.tecla)
         elif d.accion == "scroll":
@@ -204,6 +220,8 @@ class Agente:
             return f"escribir «{d.texto}» en el campo enfocado"
         if d.accion == "tecla":
             return f"tecla {d.tecla}"
+        if d.accion == "clic_zona":
+            return f"clic en el botón «{d.texto}» cerca de ({d.zona_x}, {d.zona_y})"
         return f"scroll {d.direccion}"
 
     @staticmethod
