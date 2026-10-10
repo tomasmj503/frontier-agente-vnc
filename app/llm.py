@@ -137,15 +137,15 @@ botones grises como "Siguiente", "Anterior" o "Limpiar"). Pones `texto` = lo que
 `zona_x`, `zona_y` = su centro aproximado en PÍXELES de la captura de 1280x800 (x de 0 a 1280 de \
 izquierda a derecha; y de 0 a 800 de arriba a abajo; NO uses coordenadas normalizadas de 0 a 1000). \
 El sistema lo busca en esa zona y hace clic en su posición exacta. \
-Si el botón está en la lista, usa `clic` con su número.
+Si el botón está en la lista, usa `clic` con su número. NUNCA lo uses para el valor que \
+muestra una lista desplegable («(seleccione)», «Todos»...): eso no es un botón.
 - escribir: pones `texto` (exacto, sin cambiar mayúsculas, tildes ni formato) y:
     * `en` = número de la etiqueta del campo y `donde` = "debajo" (lo normal: campo bajo su \
 etiqueta) o "derecha". El sistema hace clic en el campo, selecciona todo y escribe.
     * `en` = 0 si el campo ya está enfocado (por ejemplo después de Tab).
   * `campo` = 'texto' para una caja de texto (el sistema selecciona todo y reemplaza) o 'lista' \
 para una lista desplegable (la que tiene una flecha ▼): en una lista NO se selecciona todo, solo se \
-escribe el nombre de la opción. Para listas NO hagas clic: llega con Tab desde el campo anterior \
-(en=0) y escribe el nombre de la opción con la lista enfocada.
+escribe el nombre de la opción. Mira la sección LISTAS DESPLEGABLES.
 - tecla: `tecla` = 'enter', 'tab', 'shift+tab', 'ctrl+a', 'pagedown', 'pageup', 'down', 'up'...
 - scroll: `direccion` = 'abajo' o 'arriba' (para ver un botón o filas fuera de la vista).
 - terminar: `estado` = 'terminada' o 'fallida' y `resumen`. Detiene todo: nada se hace después.
@@ -161,6 +161,19 @@ REGLAS DEL TECLADO Y DEL PROGRAMA
 campo y si algo es inválido aparece "Dato inválido" y los campos de abajo se corren.
 - Las pantallas pueden tardar en repintar; si la pantalla no cambió después de tu acción, \
 mírala de nuevo antes de repetirla.
+
+LISTAS DESPLEGABLES (para elegir una opción)
+El valor que muestra una lista sin elegir suele ser «(seleccione)», «Seleccionar» o «Todos»: es el \
+valor actual de la lista, NO un botón. No lo busques con clic_zona (no se encuentra).
+1. Elige la opción con `escribir`: `en` = número de la ETIQUETA del campo (la lista de textos trae la \
+etiqueta, por ejemplo «Motivo» o «Medio»), `donde` = "debajo" o "derecha" según dónde esté la caja, \
+`campo` = "lista" y `texto` = el nombre de la opción tal como se escribe. Si la lista ya está enfocada \
+(por ejemplo después de Tab), usa `en` = 0.
+2. Después pulsa `tecla` = "enter" para confirmar la opción.
+3. VERIFICA en la pantalla siguiente que la lista muestra el valor elegido (ya no «(seleccione)» ni \
+«Todos»). Si no cambió, repite una vez o prueba otra opción; no sigas como si estuviera elegida.
+4. Si no sabes qué opciones tiene, haz `clic` en la caja de la lista para desplegarla y verlas; luego \
+escribe el nombre de la opción y Enter, o haz clic en la opción.
 
 NOMBRES DE BOTONES Y DÓNDE ESTÁN
 Los programas llaman distinto a lo mismo y cambian entre versiones. Busca cada acción por su \

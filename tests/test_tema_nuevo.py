@@ -171,3 +171,12 @@ def test_el_mouse_no_se_estaciona_por_defecto(monkeypatch):
     monkeypatch.setenv("TEAM_TOKEN", "t-prueba-123")
     monkeypatch.delenv("PARK_MOUSE", raising=False)
     assert Config.desde_entorno().park_mouse is False
+
+
+def test_las_instrucciones_explican_como_elegir_en_una_lista_desplegable():
+    # hallazgo del set oculto: la IA buscó «(seleccione)» con clic_zona 6 veces y llegó al tope
+    assert "LISTAS DESPLEGABLES" in SISTEMA
+    assert "(seleccione)" in SISTEMA and "NO un botón" in SISTEMA
+    assert "ETIQUETA del campo" in SISTEMA and 'tecla` = "enter"' in SISTEMA
+    assert "VERIFICA" in SISTEMA and "haz `clic` en la caja de la lista" in SISTEMA
+    assert "NUNCA lo uses para el valor que" in SISTEMA        # clic_zona no es para listas
