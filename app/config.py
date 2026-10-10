@@ -91,6 +91,7 @@ class Config:
     # Lectura de texto
     ocr_lang: str
     ocr_scale: float  # ampliación de la captura antes de leer (medido: 2 lee mejor que 1)
+    ocr_botones: bool  # leer por separado los botones azules (texto blanco sobre fondo oscuro)
 
     # Bitácora
     logs_dir: Path
@@ -124,5 +125,6 @@ class Config:
             vnc_open_timeout_s=_numero("VNC_OPEN_TIMEOUT_S", 20),
             ocr_lang=_texto("OCR_LANG", "spa"),
             ocr_scale=_numero("OCR_SCALE", 2),
+            ocr_botones=_booleano("OCR_BOTONES", True),
             logs_dir=RAIZ / _texto("LOGS_DIR", "logs"),
         )
