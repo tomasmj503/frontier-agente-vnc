@@ -19,7 +19,8 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 4 | `7a1a611` | pasó 91 s, 11 pasos | sin veredicto (`/__check` cortó la conexión) | **falló** 134 s (error de formato) | pasó 109 s, 11 pasos | |
 | 5 | `b389fba` | pasó 85 s, 11 pasos, US$0.033 | pasó 70 s, 9 pasos, US$0.029 | **falló**: respondió 16, era 45 | **falló** (error de formato) | |
 | 6 | `8673f92` | pasó 109 s, 13 pasos, US$0.046 | pasó 76 s, 9 pasos, US$0.033 | **falló**: respondió 51, era 45 | pasó 88 s, 10 pasos, US$0.044 | |
-| 7 | nota (este día) | | | _pendiente_ | | _pendiente_ |
+| 7 | `2bc0e1a` (nota) | _control: ver corrida 8_ | _control: ver corrida 8_ | pasó 100 s, 10 pasos, US$0.063 · pasó 100 s, 10 pasos, US$0.053 · **falló** 133 s: respondió 44, era 45 | _control: ver corrida 8_ | pasó 52 s, 6 pasos, US$0.024 |
+| 8 | `2bc0e1a` (control) | _pendiente_ | _pendiente_ | | _pendiente_ | |
 
 Publicado en `frontier.jutilabs.com` (servidor con versiones anteriores a las del repo):
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
@@ -144,7 +145,12 @@ E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego d
   1. Campo `nota`: un apunte corto que la IA escribe en cualquier paso y que se le devuelve en cada paso siguiente bajo "TUS NOTAS" (las últimas 12, hasta 400 caracteres cada una; las notas largas se recortan y se filtran los secretos).
   2. Instrucción de contar **solo** las filas cuyo nombre sea exactamente el pedido, anotar "Página K: X exactas de Y (descarté Z)" y sumar las notas de todas las páginas.
 - **Medido:** 47 pruebas pasan (2 nuevas: las notas vuelven en el paso siguiente; la nota larga se recorta y no filtra secretos).
-- **Resultado en el escritorio real:** _pendiente (ver corrida 7)_.
+- **Resultado en el escritorio real (medido, E3 tres veces):** pasó, pasó, falló.
+  - Las dos que pasaron lo hicieron por la razón correcta: notas "página 1: 16 exactas de 20 (descarté 4) · página 2: 18 exactas de 20 (descarté 2) · página 3: 11 exactas de 11" → total **45**, y el resumen dice que descartó 6 filas de "e Hijos". 10 pasos, 100 s.
+  - La que falló respondió **44**: en la página 1 contó "15 exactas de **19** filas" cuando la página tiene 20 (se saltó una fila al contarla). Las páginas 2 y 3 salieron bien. Reportó `terminada`: sigue siendo un falso éxito, ahora por 1.
+  - Antes de la nota: 16 (una página) y 51 (con "e Hijos"). Con la nota: 45, 45 y 44.
+- **E5 (medido, no se había corrido desde los cambios):** pasó, `fallida` como se espera, 52 s, 6 pasos, US$0.024.
+- **Idea para cerrar el caso del 44 (NO hecha, a tu decisión):** las páginas completas de una lista tienen todas el mismo número de filas. Si las notas dicen "19 filas" en la página 1 y "20" en la 2, el supervisor puede pedir recontar antes de dar `terminada`. Estimo 20–25 min; costaría ~40 s más en esos casos.
 
 ---
 
