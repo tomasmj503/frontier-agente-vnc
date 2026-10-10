@@ -9,6 +9,25 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 
 ---
 
+## Resumen ejecutivo (leer primero)
+- **Qué es:** un agente que recibe una orden, opera un programa sin API por VNC y reporta `terminada` o
+  `fallida`. Código en `app/`, banco en `bench.py`, cómo correrlo en el [README](README.md).
+- **Publicado:** el servidor corre `ec96230`. En GitHub hay `f6f831a` (regla de listas desplegables); su
+  publicación **no está confirmada**.
+- **Local (Mac, escritorio de práctica, medido):** las corridas completas de los 5 casos dieron 5/5 en las
+  corridas 9, 10 y 15; 4/5 en las 12 y 18; 3/5 en la 16; 1/5 en la 11 (regresión mía, corregida). La 20 (solo E1, E3 y E4) pasó 3/3. 55–130 s y US$0.03–0.07 por caso (metas: <4 min y ≤ US$0.10).
+- **Servidor (medido por el equipo, no por mí):** lectura de pantalla **13 s → 1.3 s**; en el set oculto
+  los casos pasaron de llegar al tope de 270 s a terminar solos en **~2 min (6 de 7 desde las 18:15)**.
+  "Terminó" es lo que reporta el agente, **no** la nota del evaluador.
+- **Meta "0 falsos terminada": NO se cumple.** Hubo `terminada` con conteos equivocados en E3 (16, 51, 44, 43).
+  E3 es el caso más inestable; la opción A (copiar los códigos de fila) lo mejoró (4 de 4 en local después).
+- **Incidente de las 15:30 (tema nuevo v4.2 con modal):** detectado, adaptado de forma genérica y medido
+  antes/después (secciones 1–5). Detalle honesto: dos regresiones mías, ya corregidas.
+- **Hallazgo real del set oculto:** lista desplegable «Motivo» (clínica) → regla de listas (cambio 10).
+- **No construido del diseño:** capas 2 y 3 (procedimientos aprendidos) y los 8 casos propios.
+- **Límites:** nombres del caso E3 en el prompt, `Esc` bloqueada para cualquier app, y la versión final
+  completa no se midió en el servidor (ver el final de este archivo).
+
 ## Resumen de corridas (todas medidas, en local salvo que diga "publicado")
 
 | # | Código | E1 | E2 | E3 | E4 | E5 |
@@ -21,9 +40,7 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 6 | `8673f92` | pasó 109 s, 13 pasos, US$0.046 | pasó 76 s, 9 pasos, US$0.033 | **falló**: respondió 51, era 45 | pasó 88 s, 10 pasos, US$0.044 | |
 | 7 | `2bc0e1a` (nota) | | | pasó 100 s, 10 pasos, US$0.063 · pasó 100 s, 10 pasos, US$0.053 · **falló** 133 s: respondió 44, era 45 | | pasó 52 s, 6 pasos, US$0.024 |
 | 8 | `2bc0e1a` (control) | pasó 109 s, 13 pasos, US$0.048 | pasó 85 s, 9 pasos, US$0.034 | | pasó 82 s, 10 pasos, US$0.045 | |
-
 | 9 | `fd239c9` (tema **viejo**, tras el aviso del incidente) | pasó 97 s, 13 pasos, US$0.047 | pasó 67 s, 9 pasos, US$0.034 | pasó 112 s, 11 pasos, US$0.074 | pasó 82 s, 11 pasos, US$0.050 | pasó 42 s, 6 pasos, US$0.024 |
-
 | 10 | `ec46b68` — **tema nuevo v4.2, ANTES de adaptar** | pasó 112 s, 16 pasos, US$0.058 | pasó 103 s, 13 pasos, US$0.051 | pasó 100 s, 11 pasos, US$0.066 | pasó 100 s, 13 pasos, US$0.059 | pasó 61 s, 9 pasos, US$0.034 |
 | 11 | `843cc5b` (mouse estacionado: **regresión mía**) | **falló** 273 s, 28 pasos | **falló** 106 s, 13 pasos | pasó 133 s, 12 pasos | **falló** 273 s, 35 pasos | **falló** 112 s, 15 pasos |
 | 12 | `29a34de` — **tema nuevo v4.2, DESPUÉS de adaptar** | pasó 118 s, 14 pasos, US$0.057 | pasó 85 s, 10 pasos, US$0.042 | **falló** 115 s: respondió 43, era 45 | pasó 124 s, 11 pasos, US$0.053 | pasó 79 s, 7 pasos, US$0.030 |
@@ -35,6 +52,7 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 18 | reconexión VNC + "única página", los 5 casos | pasó 130 s, 15 pasos, US$0.065 | pasó 88 s, 10 pasos, US$0.045 | **falló** 91 s: respondió 44 | pasó 115 s, 12 pasos, US$0.074 | pasó 54 s, 7 pasos, US$0.030 |
 | 19 | corte REAL de la conexión a mitad de tarea (E5) | | | | | pasó 103 s (`fallida` correcta, con los dos documentos) |
 | 20 | regla de listas desplegables (solo prompt) | pasó 100 s, 13 pasos, US$0.058 | | pasó 100 s, 11 pasos, US$0.064 | pasó 106 s, 11 pasos, US$0.055 | |
+
 Publicado en `frontier.jutilabs.com`: **el servidor ya corre `ec96230`** (lo confirmaste después de la corrida 19). Las corridas publicadas de abajo que medí yo son **anteriores** a esa publicación; con `ec96230` no he medido nada contra el servidor:
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
@@ -151,7 +169,7 @@ E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego d
 - **Antes → después (medido, 64 búsquedas con la IA "equivocándose" hasta 80 px):** 8 de 64 → **64 de 64**, 0 clics en lugar equivocado, error de 0–2 px, 0.08 s de mediana.
 - **En vivo:** en E3 la IA lo usó 5 veces y las 5 encontró "Siguiente"; por primera vez recorrió las 3 páginas.
 
-### 18. El conteo de E3 sigue mal: nombre parecido y falta de memoria — este commit
+### 18. El conteo de E3 sigue mal: nombre parecido y falta de memoria — `2bc0e1a`
 - **Qué falló:** E3 recorrió las 3 páginas y respondió **51** en vez de **45**.
 - **Por qué (diagnóstico de la bitácora):** contó 20 + 20 + 11 filas, y entre ellas hay filas de "Ferretería Ruiz **e Hijos**" (6). El filtro del programa busca partes del texto, así que las trae. La regla "elige solo el exacto" se le olvidó entre páginas, porque la IA no tiene memoria entre pasos más que la lista de acciones.
 - **Qué cambié:**
@@ -363,7 +381,7 @@ en las bitácoras (con captura):
 | Colores de acento claros (amarillo) o un tema oscuro | **No cubierto:** el detector exige fondo oscuro con color |
 | Conteo de filas por la IA | **Abierto** (ver arriba) |
 
-### 6) Opción A para E3: copiar el identificador de cada fila (decidido por ti; solo local)
+### 6) Opción A para E3: copiar el identificador de cada fila (decidido por ti; medido en local; publicado después en `ec96230`)
 - **Reglas de la prueba:** mientras corría la evaluación del set oculto, **no se tocó el servidor** (sin
   deploy, `git pull`, reinicios ni `bench.py --base`). Todo en local y contra mi escritorio de práctica.
   - *Escritorio:* `bench.py` usa el de mi `.env` (tarjeta de `/evento`); el BRIEF dice que el evaluador
@@ -389,7 +407,7 @@ en las bitácoras (con captura):
   una medición la IA empezó leyendo la página sin filtrar por estado y se corrigió sola. Está
   **commiteado en local y sin subir a GitHub ni publicar en el servidor**, a la espera de tu orden.
 
-### 7) Regla general anti-ciclo (el ciclo de la clínica) — solo local, sin publicar
+### 7) Regla general anti-ciclo (el ciclo de la clínica) — medido en local; publicado después en `ec96230`
 - **Qué falló (en la evaluación del set oculto, app de la clínica):** el agente abría la cita C-1460, la
   cerraba, filtraba y la volvía a abrir, una y otra vez, hasta el tope de 270 s.
 - **Por qué la regla que existía no lo veía:** solo detectaba *la misma acción tres veces seguidas sobre la
@@ -430,7 +448,7 @@ en las bitácoras (con captura):
   - *Abierto, a tu decisión:* (1) pedir que antes de afirmar "única página" se **pruebe** pulsar "Siguiente"
     y se compruebe que no cambia la pantalla; (2) reconectar el VNC una vez si se corta durante la tarea.
 
-### 8) Reconexión del VNC y "única página" comprobada — solo local, sin publicar
+### 8) Reconexión del VNC y "única página" comprobada — medido en local; publicado después en `ec96230`
 **a) Reconectar el VNC una vez si se corta durante la tarea** (`vnc.py`, `agent.py`, `config.py`)
 - *Qué falló:* en una corrida de 5 casos, E4 terminó con `ConnectionClosedError`: la conexión se cortó a
   mitad de la tarea y solo había un reintento al conectar, no durante el trabajo.
@@ -473,7 +491,7 @@ en las bitácoras (con captura):
   anterior E3 había dado 45 en 3 de 3 repeticiones y 16 una vez. Sigue siendo el caso más inestable.
 - Totales de esta corrida: US$0.266; 7.8–10.1 s por paso.
 
-### 9) Servidor: `OMP_THREAD_LIMIT=1` en el `.env` (configuración, **sin medir**)
+### 9) Servidor: `OMP_THREAD_LIMIT=1` en el `.env` (configuración; **medido después en el servidor**, ver cambio 11)
 - **Qué cambió:** se agregó `OMP_THREAD_LIMIT=1` al `.env` **del servidor** (lo hiciste tú) y a `.env.example`.
   Es solo configuración: **no se tocó el Dockerfile ni el código**, y no se publicó nada nuevo con este cambio.
 - **De quién y por qué:** es una propuesta de la otra sesión, que vio **~13 s de lectura por pantalla** en el
@@ -484,7 +502,8 @@ en las bitácoras (con captura):
 - **Datos propios para comparar (medidos en mi Mac, 10 núcleos, sin ese límite):** leer los textos de una
   pantalla tarda entre 0.5 y 2 s (con los botones, +0.1 a +0.35 s). Lo del servidor es otra máquina y no lo
   he medido nunca.
-- **Qué falta medir (todo en el servidor, mismos casos antes y después):**
+- **Resultado (dato medido en el servidor que me pasaste; no lo medí yo):** la lectura bajó de **13 s a 1.3 s por pantalla** (ver cambio 11). La hipótesis de la competencia entre procesos y OpenMP se sostiene con ese dato, aunque no se aisló qué parte la causaba.
+- **Qué faltaba medir (la lectura ya se midió; lo demás sigue sin medirse):**
   1. Que el contenedor **tiene** la variable (`docker exec frontier-api env | grep OMP`). Importante:
      `deploy.sh` usa `--env-file`, que solo se lee **al crear** el contenedor; si se editó el `.env` después de
      publicar, hace falta recrearlo.
@@ -498,7 +517,7 @@ en las bitácoras (con captura):
 - **Ojo en local:** si alguien copia `.env.example` a `.env` en la Mac, cada Tesseract usará un solo hilo y
   la lectura local podría ser algo más lenta (no medido).
 
-### 10) Listas desplegables: regla en las instrucciones (hallazgo del set oculto) — solo el prompt
+### 10) Listas desplegables: regla en las instrucciones (hallazgo del set oculto) — solo el prompt (`f6f831a`)
 - **Qué falló (dato que me pasaste; no he visto ese log):** en la app de la clínica, al cancelar una cita hay
   una lista «Motivo» que muestra «(seleccione)». La IA hizo `clic_zona «(seleccione)»` 6 veces sin
   encontrarla y llegó al tope (`logs/ff115dff83ae` del servidor). En otro caso sí funcionó: `escribir`
@@ -526,6 +545,24 @@ en las bitácoras (con captura):
   - No se corrieron E2 ni E5 (no usan listas).
 - **Pendiente:** volver a mirar el set oculto con una versión publicada que traiga esta regla (no se publicó).
 
+### 11) Datos medidos en el servidor, versión publicada (los midió el equipo; me los pasaste)
+| Qué | Antes | Después |
+|---|---|---|
+| **Lectura de pantalla** | ~13 s por pantalla | **~1.3 s** por pantalla tras `OMP_THREAD_LIMIT=1` (caso `ff115dff83ae`: 32.5 s de lectura en 25 pasos) |
+| **Set oculto, tiempo por caso** | llegaban al tope de **270 s** (~4.5 min cada uno) | desde las **18:15**, **6 de 7** casos terminaron solos en **~2 min** |
+
+- **Ojo con la palabra "terminaron":** es lo que **reporta el agente** (`terminada`/`fallida`), **no la nota del
+  evaluador**. Que termine solo y rápido no demuestra que el resultado sea correcto.
+- **Fallo real visto en el set oculto:** la lista desplegable «Motivo» al cancelar una cita en la clínica
+  (muestra «(seleccione)»): la IA la buscaba con `clic_zona` y llegaba al tope. Se agregó la regla de listas
+  desplegables (cambio 10, `f6f831a`). Que **esté publicada en el servidor no está confirmado**.
+- **Qué NO se midió:** la versión final completa en el servidor (solo la lectura y el set oculto de arriba);
+  tampoco `POST /tasks` después del cambio de hilos, ni cuánto tarda `deploy.sh` entero.
+- **Cómo se explica la mejora de tiempo (hipótesis):** antes cada tarea gastaba ~13 s por pantalla solo en
+  leer, y con 10–25 pasos por tarea eso empujaba al tope de 270 s; con 1.3 s por pantalla cabe en ~2 min.
+  Hubo otros arreglos entre medio (anti-ciclo, reconexión, listas), así que **no se puede repartir cuánto
+  corresponde a cada uno**.
+
 ---
 
 ## Riesgos y pendientes conocidos
@@ -533,7 +570,15 @@ en las bitácoras (con captura):
 - La IA es lo más lento (5 s por llamada o más). Secuencias de varias acciones por decisión quedan **para después del imprevisto**.
 - E3 acierta 2 de 3 veces: la IA a veces se salta una fila al contar una página de 20 (cambio 18).
 - **E3 (conteo de filas):** con la opción A acertó 4 de 4 (antes ~la mitad). Pocas muestras; si en la evaluación falla, el síntoma sería un conteo off-by-uno.
-- **`OMP_THREAD_LIMIT=1` en el servidor:** agregado, **falta medir** si baja el tiempo de lectura (cambio 9).
+- **`OMP_THREAD_LIMIT=1` en el servidor:** medido: lectura de 13 s a 1.3 s por pantalla (cambio 11). En una Mac con muchos núcleos podría ser más lenta si se copia `.env.example`.
 - **E3:** sigue siendo el caso más inestable (45 en 7 de 9 corridas recientes; falló con 16 y con 44). El método elegido por la IA (filtrar por estado o contar a ojo) cambia de una corrida a otra.
-- **Servidor:** publicado `ec96230` (confirmado por ti). Sin medir contra el servidor con esa versión. Ver también `OMP_THREAD_LIMIT=1` (cambio 9, sin medir).
+- **Servidor:** publicado `ec96230` (confirmado por el equipo); `f6f831a` (listas desplegables) está en GitHub y **no** tengo confirmación de que esté publicado. Datos medidos en el servidor: cambio 11.
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
+- **Límites conocidos, con honestidad:**
+  - **Nombres del caso E3 dentro del prompt** ("Ferretería Ruiz", "…e Hijos", "…Hnos"): ejemplos de la app de
+    práctica metidos en las instrucciones. Contradice "nada fijo a la app"; la prueba anti-palabra no lo detecta.
+  - **`Esc` bloqueada para cualquier app** (`supervisor.py`): en otra app puede ser la forma de cerrar un modal.
+  - **No hubo tiempo de medir la versión final completa en el servidor.**
+  - **"Terminada" es el reporte del agente, no la nota del evaluador.**
+  - Las capas 2 y 3 del diseño (procedimientos aprendidos) no se construyeron; los 8 casos propios del diseño
+    tampoco; la comparación de modelos fue una sola llamada de prueba por modelo.
