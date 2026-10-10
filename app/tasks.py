@@ -98,7 +98,7 @@ class Gestor:
                 "seg_leer_textos": round(t.progreso.seg_ocr, 1),
                 "seg_ia": round(t.progreso.seg_ia, 1),
                 "seg_acciones": round(t.progreso.seg_accion, 1),
-                "historial": t.progreso.historial,
+                "historial": t.progreso.historial, "notas": t.progreso.notas,
             })
 
     def _podar(self) -> None:

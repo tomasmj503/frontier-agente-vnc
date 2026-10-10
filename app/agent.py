@@ -37,6 +37,7 @@ class Progreso:
     seg_ocr: float = 0.0
     seg_ia: float = 0.0
     seg_accion: float = 0.0
+    notas: list[str] = field(default_factory=list)  # apuntes de la IA, se le devuelven en cada paso
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,8 @@ class Agente:
                 if not vista.quieta:
                     avisos_paso.append(
                         "La pantalla seguía cambiando cuando la leí; puede estar a medio cargar.")
-                msg = llm.mensaje_paso(tarea, progreso.historial, self._lista(vista), avisos_paso)
+                msg = llm.mensaje_paso(tarea, progreso.historial, self._lista(vista), avisos_paso,
+                                       progreso.notas)
 
                 t_ia = time.perf_counter()
                 try:
@@ -114,6 +116,8 @@ class Agente:
                 progreso.costo_usd += r.costo_usd
                 progreso.llamadas_ia += 1
                 d = r.decision
+                if d.nota and (not progreso.notas or progreso.notas[-1] != d.nota):
+                    progreso.notas.append(d.nota)  # se conserva aunque la acción se rechace
 
                 v = supervisor.revisar(d, vista)
                 if v.decision is not None:
@@ -121,7 +125,7 @@ class Agente:
                 await asyncio.to_thread(bitacora.paso, n, vista.imagen, {
                     "paso": n, "decision": d.model_dump(), "rechazada": not v.ok, "aviso": v.aviso,
                     "costo_paso_usd": r.costo_usd, "costo_acumulado_usd": progreso.costo_usd,
-                    "ia_s": round(ia_s, 2),
+                    "ia_s": round(ia_s, 2), "nota": d.nota,
                     "modelo": r.modelo, "tokens": [r.tokens_entrada, r.tokens_salida],
                     "pantalla_quieta": vista.quieta, "espera_s": round(vista.espera_s, 2),
                     "ocr_s": round(vista.ocr_s, 2), "textos": vista.lista_texto(),

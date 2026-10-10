@@ -143,3 +143,26 @@ def test_clic_zona_exige_texto_y_coordenadas_dentro_de_la_pantalla():
     with pytest.raises(ValueError):
         Decision.model_validate(
             {"razon": "r", "accion": "clic_zona", "texto": "Siguiente", "zona_x": 2000, "zona_y": 100})
+
+
+def test_las_notas_de_la_ia_vuelven_en_los_pasos_siguientes(entorno):
+    cfg, vnc, tmp = entorno
+    vistos = []
+
+    class AgenteCaptura(Agente):
+        async def decidir(self, llm, mensaje, vista):
+            vistos.append(mensaje)
+            return guion.pop(0)
+
+    guion = [
+        _respuesta(accion="tecla", tecla="tab",
+                   nota="Página 1: 16 exactas de 20 (descarté 4: Ferretería Ruiz e Hijos)"),
+        _respuesta(accion="tecla", tecla="tab", nota="Página 2: 15 exactas de 20 (descarté 5)"),
+        _respuesta(accion="terminar", estado="fallida", resumen="x"),
+    ]
+    asyncio.run(AgenteCaptura(cfg).ejecutar(
+        "¿Cuántas facturas vencidas tiene Ferretería Ruiz?", "wss://x/websockify", "clave-123",
+        Progreso(), Bitacora(tmp / "b", [])))
+    assert "TUS NOTAS" not in vistos[0]
+    assert "Página 1: 16 exactas" in vistos[1] and "Página 2" not in vistos[1]
+    assert "Página 1: 16 exactas" in vistos[2] and "Página 2: 15 exactas" in vistos[2]

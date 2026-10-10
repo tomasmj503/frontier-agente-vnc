@@ -102,3 +102,12 @@ def test_ningun_archivo_de_codigo_nombra_la_app_de_practica():
 def test_una_razon_muy_larga_se_recorta_en_vez_de_rechazarse():
     d = Decision.model_validate({"razon": "x" * 900, "accion": "tecla", "tecla": "tab"})
     assert len(d.razon) == 300 and d.accion == "tecla"
+
+
+def test_una_nota_larga_se_recorta_y_el_mensaje_a_la_ia_no_lleva_la_clave(monkeypatch):
+    d = Decision.model_validate({"razon": "r", "nota": "n " * 600, "accion": "tecla", "tecla": "tab"})
+    assert len(d.nota) <= 400
+    monkeypatch.setenv("TEAM_TOKEN", "t-prueba-123")
+    llm = Llm(Config.desde_entorno(), secretos=[CLAVE], cliente=object())
+    msg = llm.mensaje_paso("orden", [], "1 | x=1 y=1 | a", [], [f"apunte con {CLAVE}", "Página 1: 16"])
+    assert CLAVE not in msg and "Página 1: 16" in msg and "TUS NOTAS" in msg
