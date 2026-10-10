@@ -28,6 +28,8 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 11 | `843cc5b` (mouse estacionado: **regresión mía**) | **falló** 273 s, 28 pasos | **falló** 106 s, 13 pasos | pasó 133 s, 12 pasos | **falló** 273 s, 35 pasos | **falló** 112 s, 15 pasos |
 | 12 | `29a34de` — **tema nuevo v4.2, DESPUÉS de adaptar** | pasó 118 s, 14 pasos, US$0.057 | pasó 85 s, 10 pasos, US$0.042 | **falló** 115 s: respondió 43, era 45 | pasó 124 s, 11 pasos, US$0.053 | pasó 79 s, 7 pasos, US$0.030 |
 | 13 | `29a34de` (E3 repetido) | | | pasó 118 s · **falló** 103 s (43 otra vez) | | |
+| 14 | opción A (códigos de fila en la nota), E3 ×3 | | | pasó 97 s · pasó 109 s · pasó 97 s (45, 45, 45) | | |
+| 15 | opción A, los 5 casos | pasó 127 s, 16 pasos, US$0.067 | pasó 85 s, 10 pasos, US$0.043 | pasó 100 s, 11 pasos, US$0.060 | pasó 97 s, 11 pasos, US$0.054 | pasó 55 s, 7 pasos, US$0.029 |
 Publicado en `frontier.jutilabs.com` (servidor con versiones anteriores a las del repo):
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
@@ -356,13 +358,39 @@ en las bitácoras (con captura):
 | Colores de acento claros (amarillo) o un tema oscuro | **No cubierto:** el detector exige fondo oscuro con color |
 | Conteo de filas por la IA | **Abierto** (ver arriba) |
 
+### 6) Opción A para E3: copiar el identificador de cada fila (decidido por ti; solo local)
+- **Reglas de la prueba:** mientras corría la evaluación del set oculto, **no se tocó el servidor** (sin
+  deploy, `git pull`, reinicios ni `bench.py --base`). Todo en local y contra mi escritorio de práctica.
+  - *Escritorio:* `bench.py` usa el de mi `.env` (tarjeta de `/evento`); el BRIEF dice que el evaluador
+    recibe "un escritorio distinto del tuyo". No se pudo verificar la URL del evaluador desde aquí.
+  - *Llave de OpenRouter compartida:* antes de gastar se consultó el saldo (solo lectura): US$41.21
+    restantes de un límite de US$45; la prueba costó ~US$0.75 (≈ 2 %).
+- **Qué falló antes:** la IA contaba "19 filas" en páginas de 20 (E3: 43 en vez de 45, dos veces con el
+  mismo número). La lectura no perdía filas (medido en el punto anterior).
+- **Qué se cambió (`llm.py`):** en cada página la IA copia en su nota el identificador de **cada** fila
+  (código o primera columna), una por una, las cuenta y comprueba que coincida con las filas que ve
+  (las páginas completas suelen tener todas el mismo número; la última menos); anota solo la página actual.
+  El tope de una nota sube de 400 a 800 caracteres para que quepan ~20 códigos.
+- **Regla de aceptación acordada:** E3 con al menos 2 de 3 y que ningún otro caso falle; si no, revertir.
+- **Medido:**
+  - **E3 ×3: 3 de 3** (97 s, 109 s, 97 s; US$0.047–0.063; 11 pasos; respuesta 45 las tres veces).
+  - **Los 5 casos: 5 de 5**, y E3 acertó otra vez (4 de 4 en total con la opción A).
+  - En las notas se ve por qué: 20 + 20 + 11 códigos copiados, 16 + 18 + 11 exactas, 6 descartadas de
+    "e Hijos" → 45.
+- **Antes → después (E3, mismo tema nuevo):** 1 de 3 (43, 43 y un acierto) → 4 de 4.
+- **Costo/tiempo:** E3 sigue en ~100 s y ~US$0.05–0.06 (sin cambio apreciable). En esta corrida E1 tardó
+  127 s y 16 pasos; es la variación habitual (la corrida 12 dio 118 s y 14 pasos).
+- **Límites honestos:** son 4 muestras de E3; el acierto depende de que la IA copie bien los códigos. En
+  una medición la IA empezó leyendo la página sin filtrar por estado y se corrigió sola. Está
+  **commiteado en local y sin subir a GitHub ni publicar en el servidor**, a la espera de tu orden.
+
 ---
 
 ## Riesgos y pendientes conocidos
 - `ReadTimeout` contra el publicado: sin causa establecida (cambio 13).
 - La IA es lo más lento (5 s por llamada o más). Secuencias de varias acciones por decisión quedan **para después del imprevisto**.
 - E3 acierta 2 de 3 veces: la IA a veces se salta una fila al contar una página de 20 (cambio 18).
-- **E3 (conteo de filas):** la IA cuenta mal una fila por página en ~la mitad de las corridas; la lectura de pantalla trae todas las filas (medido). Pendiente de decidir el arreglo.
+- **E3 (conteo de filas):** con la opción A acertó 4 de 4 (antes ~la mitad). Pocas muestras; si en la evaluación falla, el síntoma sería un conteo off-by-uno.
 - **Tema nuevo en servidor:** lo publicado está detrás del repo; falta `git pull && ./deploy.sh`.
 - Lo publicado en el servidor está **detrás** del repo: falta `git pull && ./deploy.sh` cuando decidas publicar.
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
