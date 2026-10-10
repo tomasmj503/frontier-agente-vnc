@@ -34,7 +34,7 @@ Qué falló, por qué, qué se cambió y qué se midió antes y después. Se act
 | 17 | regla anti-ciclo, repeticiones | | | pasó 92 s · pasó 96 s · pasó 99 s (45 las tres) | pasó 104 s | |
 | 18 | reconexión VNC + "única página", los 5 casos | pasó 130 s, 15 pasos, US$0.065 | pasó 88 s, 10 pasos, US$0.045 | **falló** 91 s: respondió 44 | pasó 115 s, 12 pasos, US$0.074 | pasó 54 s, 7 pasos, US$0.030 |
 | 19 | corte REAL de la conexión a mitad de tarea (E5) | | | | | pasó 103 s (`fallida` correcta, con los dos documentos) |
-Publicado en `frontier.jutilabs.com` (servidor con versiones anteriores a las del repo):
+Publicado en `frontier.jutilabs.com`: **el servidor ya corre `ec96230`** (lo confirmaste después de la corrida 19). Las corridas publicadas de abajo que medí yo son **anteriores** a esa publicación; con `ec96230` no he medido nada contra el servidor:
 E1 pasó 103 s · luego una corrida con `ReadTimeout` sin causa clara · luego dos E1 fallidos (ver cambio 12).
 
 ---
@@ -472,6 +472,31 @@ en las bitácoras (con captura):
   anterior E3 había dado 45 en 3 de 3 repeticiones y 16 una vez. Sigue siendo el caso más inestable.
 - Totales de esta corrida: US$0.266; 7.8–10.1 s por paso.
 
+### 9) Servidor: `OMP_THREAD_LIMIT=1` en el `.env` (configuración, **sin medir**)
+- **Qué cambió:** se agregó `OMP_THREAD_LIMIT=1` al `.env` **del servidor** (lo hiciste tú) y a `.env.example`.
+  Es solo configuración: **no se tocó el Dockerfile ni el código**, y no se publicó nada nuevo con este cambio.
+- **De quién y por qué:** es una propuesta de la otra sesión, que vio **~13 s de lectura por pantalla** en el
+  servidor, que tiene **4 procesadores**. Ese dato de 13 s **no lo medí yo**.
+- **Hipótesis (sin verificar):** Tesseract usa varios hilos por proceso (OpenMP) y el agente lanza hasta 4
+  lecturas de botones a la vez (cambio 7d: lectura en paralelo). Cuatro procesos con varios hilos cada uno
+  compiten por 4 procesadores y se estorban. Con un hilo por proceso, no.
+- **Datos propios para comparar (medidos en mi Mac, 10 núcleos, sin ese límite):** leer los textos de una
+  pantalla tarda entre 0.5 y 2 s (con los botones, +0.1 a +0.35 s). Lo del servidor es otra máquina y no lo
+  he medido nunca.
+- **Qué falta medir (todo en el servidor, mismos casos antes y después):**
+  1. Que el contenedor **tiene** la variable (`docker exec frontier-api env | grep OMP`). Importante:
+     `deploy.sh` usa `--env-file`, que solo se lee **al crear** el contenedor; si se editó el `.env` después de
+     publicar, hace falta recrearlo.
+  2. Tiempo de lectura por pantalla: `ocr_s` en cada `paso_NN.json` de `logs/`, o las columnas "textos" y
+     "s/paso" de `bench.py --base` sobre E1–E5.
+  3. Que **no cambie la exactitud** de la lectura (el límite de hilos no debería, pero hay que comprobarlo con
+     los mismos casos).
+- **Criterio propuesto (mío, a confirmar):** conservarla si baja claramente el tiempo de lectura sin cambiar
+  los aciertos; si no mejora, quitarla. Otra palanca, **no aplicada**: bajar el máximo de 4 lecturas de
+  botones en paralelo.
+- **Ojo en local:** si alguien copia `.env.example` a `.env` en la Mac, cada Tesseract usará un solo hilo y
+  la lectura local podría ser algo más lenta (no medido).
+
 ---
 
 ## Riesgos y pendientes conocidos
@@ -479,7 +504,7 @@ en las bitácoras (con captura):
 - La IA es lo más lento (5 s por llamada o más). Secuencias de varias acciones por decisión quedan **para después del imprevisto**.
 - E3 acierta 2 de 3 veces: la IA a veces se salta una fila al contar una página de 20 (cambio 18).
 - **E3 (conteo de filas):** con la opción A acertó 4 de 4 (antes ~la mitad). Pocas muestras; si en la evaluación falla, el síntoma sería un conteo off-by-uno.
+- **`OMP_THREAD_LIMIT=1` en el servidor:** agregado, **falta medir** si baja el tiempo de lectura (cambio 9).
 - **E3:** sigue siendo el caso más inestable (45 en 7 de 9 corridas recientes; falló con 16 y con 44). El método elegido por la IA (filtrar por estado o contar a ojo) cambia de una corrida a otra.
-- **Tema nuevo en servidor:** lo publicado está detrás del repo; falta `git pull && ./deploy.sh`.
-- Lo publicado en el servidor está **detrás** del repo: falta `git pull && ./deploy.sh` cuando decidas publicar.
+- **Servidor:** publicado `ec96230` (confirmado por ti). Sin medir contra el servidor con esa versión. Ver también `OMP_THREAD_LIMIT=1` (cambio 9, sin medir).
 - El efecto de `Ctrl+A` en listas y de los hilos aparte no se aisló con medición.
