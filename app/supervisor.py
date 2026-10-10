@@ -16,6 +16,18 @@ TECLAS_BLOQUEADAS = {"ctrl+l", "f12", "esc", "escape"}
 _SENAL_ERROR = re.compile(r"inv[aá]lid|error|obligatori|no se pudo|ya existe|duplicad", re.I)
 _LINEA_RESPUESTA = re.compile(r"^\s*respuesta\s*:", re.I | re.M)
 _ES_PREGUNTA = re.compile(r"\?|¿|\bcu[aá]nt[oa]s?\b|\bcu[aá]l(es)?\b|\bqu[ée]\b", re.I)
+_ES_CONTEO = re.compile(r"\bcu[aá]nt[oa]s?\b|\bn[uú]mero\s+de\b|\bcantidad\b|\btotal\s+de\b", re.I)
+# "Página 2", "Pág. 2 de 5", "Página 2/5"
+_PAGINA = re.compile(r"p[áa]g(?:ina|\.)?\s*(\d+)(?:\s*(?:de|/)\s*(\d+))?", re.I)
+# Totales que muestra el propio programa: "45 registros", "Total: 45", "de 45 resultados"
+_TOTAL_PROGRAMA = re.compile(
+    r"\b(?:total|registros|resultados)(?:\s+de\s+\w+)?\s*[:=]\s*(\d[\d.,]*)"
+    r"|(\d[\d.,]*)\s+(?:registros|resultados|coincidencias|encontrad[oa]s)\b"
+    r"|\bde\s+(\d[\d.,]*)\s+(?:registros|resultados)\b", re.I)
+_CONFIRMA_UNICA = re.compile(
+    r"\b(?:[uú]nica|sola)\s+p[áa]gina\b|\bno hay m[áa]s p[áa]ginas\b|\b[uú]ltima p[áa]gina\b", re.I)
+_NUMERO = re.compile(r"\d[\d.,]*")
+MAX_RECHAZOS_CONTEO = 2
 
 
 @dataclass
@@ -32,8 +44,32 @@ class Supervisor:
     _confirmado_error: bool = False
     _confirmado_pregunta: bool = False
     _firmas: list[str] = field(default_factory=list)
+    # Paginación y totales que el programa mostró (para no dar por bueno un conteo a ojo)
+    _paginas_vistas: set[int] = field(default_factory=set)
+    _total_paginas: int = 0
+    _hay_paginacion: bool = False
+    _totales: set[str] = field(default_factory=set)
+    _rechazos_conteo: int = 0
+
+    def _observar(self, vista: Vista) -> None:
+        """Anota la paginación y los totales que muestra esta pantalla."""
+        self._hay_paginacion = False
+        for e in vista.elementos:
+            m = _PAGINA.search(e.texto)
+            if m:
+                self._hay_paginacion = True
+                self._paginas_vistas.add(int(m.group(1)))
+                if m.group(2):
+                    self._total_paginas = max(self._total_paginas, int(m.group(2)))
+            if re.search(r"\bsiguiente\b", e.texto, re.I):
+                self._hay_paginacion = True
+            t = _TOTAL_PROGRAMA.search(e.texto)
+            if t:
+                crudo = next(g for g in t.groups() if g)
+                self._totales.add(re.sub(r"\D", "", crudo))
 
     def revisar(self, d: Decision, vista: Vista) -> Veredicto:
+        self._observar(vista)
         # 1) Los números tienen que existir en la pantalla actual.
         if d.accion == "clic" and vista.por_numero(d.numero) is None:
             return Veredicto(False, f"El número {d.numero} no existe en la lista de textos de esta pantalla.")
@@ -51,7 +87,8 @@ class Supervisor:
             return Veredicto(False, "No debes escribir contraseñas ni claves en el programa.")
 
         # 4) Bucles: la misma acción sobre la misma pantalla, una y otra vez.
-        firma = f"{d.accion}|{d.numero}|{d.texto}|{d.en}|{d.tecla}|{d.direccion}|{hash(vista.lista_texto())}"
+        firma = (f"{d.accion}|{d.numero}|{d.texto}|{d.en}|{d.tecla}|{d.direccion}|"
+                 f"{d.zona_x}|{d.zona_y}|{hash(vista.lista_texto())}")
         self._firmas.append(firma)
         if d.accion != "terminar" and self._firmas[-3:].count(firma) >= 3:
             return Veredicto(False, "Repetiste la misma acción tres veces sobre la misma pantalla sin "
@@ -71,6 +108,10 @@ class Supervisor:
                 return Veredicto(False, "La pantalla muestra un texto de error o aviso. Revisa que el "
                                         "dato realmente quedó guardado igual a lo pedido antes de "
                                         "dar 'terminada'; si no quedó, reporta 'fallida'.")
+            # 5b) Un conteo no se da "a ojo" si el programa tiene paginación sin recorrer o un total.
+            veredicto = self._revisar_conteo(d)
+            if veredicto is not None:
+                return veredicto
             # 6) Una pregunta termina con una línea 'respuesta: ...'.
             if _ES_PREGUNTA.search(self.tarea) and not _LINEA_RESPUESTA.search(resumen) \
                     and not self._confirmado_pregunta:
@@ -86,3 +127,46 @@ class Supervisor:
             if limpio != resumen:
                 return Veredicto(True, decision=d.model_copy(update={"resumen": limpio or "Tarea fallida."}))
         return Veredicto(True)
+
+    def _revisar_conteo(self, d: Decision) -> Veredicto | None:
+        """Regla del DISENO: nunca 'terminada' con un número que no quedó verificado.
+
+        - Si el programa muestra un total ("45 registros"), la respuesta debe ser ese total.
+        - Si hay paginación y no se recorrieron las páginas, el conteo es parcial.
+        Tras 2 avisos sin resolver, la tarea se reporta 'fallida' explicando por qué.
+        """
+        if not _ES_CONTEO.search(self.tarea):
+            return None
+        linea = next((x for x in d.resumen.splitlines() if _LINEA_RESPUESTA.match(x)), None)
+        if linea is None:
+            return None
+        m = _NUMERO.search(linea.split(":", 1)[1])
+        dado = re.sub(r"\D", "", m.group(0)) if m else ""
+
+        motivo = ""
+        if self._totales and dado not in self._totales:
+            motivo = (f"el programa muestra el total {', '.join(sorted(self._totales))} y la "
+                      f"respuesta dada ({dado or 'sin número'}) no coincide con él")
+        elif self._hay_paginacion and not _CONFIRMA_UNICA.search(d.resumen):
+            vistas = sorted(self._paginas_vistas) or [1]
+            completo = (self._total_paginas and set(range(1, self._total_paginas + 1)) <= set(vistas)) \
+                or (not self._total_paginas and len(vistas) >= 2)
+            if not completo:
+                motivo = ("hay paginación y solo se revisaron las páginas "
+                          f"{', '.join(map(str, vistas))}"
+                          + (f" de {self._total_paginas}" if self._total_paginas else "")
+                          + ": el conteo es parcial")
+        if not motivo:
+            return None
+
+        self._rechazos_conteo += 1
+        if self._rechazos_conteo > MAX_RECHAZOS_CONTEO:
+            return Veredicto(True, decision=d.model_copy(update={
+                "estado": "fallida",
+                "resumen": f"No pude confirmar el dato pedido: {motivo}. No entrego un número sin verificar.",
+            }))
+        return Veredicto(False, (
+            f"No des 'terminada' todavía: {motivo}. Usa el total o los filtros del programa, o recorre "
+            "TODAS las páginas con el botón Siguiente y suma. Si es una sola página, dilo en el resumen "
+            "('única página'). Si no puedes llegar al dato, reporta 'fallida' explicando por qué y "
+            "sin línea 'respuesta:'."))
